@@ -35,3 +35,16 @@ Consulte las opciones de donación en [DONATE.es-ES.md](DONATE.es-ES.md).
 ## 📄 Licencia
 
 Distribuido bajo la licencia **GNU AGPLv3**. Consulte [LICENSE.es-ES.md](LICENSE.es-ES.md).
+
+## 🔐 Política Unificada de Acceso y Autenticación
+
+**Astral Network** se integra con la política unificada de control de acceso del ecosistema Astral:
+
+1. **OAuth2 / Samba Active Directory / Postgres**:
+   - Autenticación federada orquestada mediante `astral-auth-service` (`http://127.0.0.1:8181`). Los operadores y administradores de red corporativos se validan en Samba AD.
+2. **Mediante `auth-service` (SSO)**:
+   - Validación de encabezados `Authorization: Bearer <token>` y cookies de sesión (`sso_token` y `astral_token`) firmados con el secreto compartido (`AUTH_TOKEN_SECRET` en `/etc/auth-service/auth.env`).
+3. **Usuario Local Linux (`root` o `sudo`)**:
+   - Autenticación local en el sistema operativo verificando permisos de `root` o membresía en los grupos `wheel` o `sudo`.
+4. **Superusuario PostgreSQL**:
+   - Acceso administrativo para cualquier cuenta PostgreSQL con `rolsuper = true` (ej: `postgres`).
