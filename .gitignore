@@ -1,0 +1,41 @@
+# Rust build artifacts
+target/
+**/*.rs.bk
+*.pdb
+
+# Dependencies
+node_modules/
+dist/
+
+# Credentials and sensitive environment files
+*.env
+*.env.*
+!*.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+
+# Certificates and keys
+certs/
+*.pem
+*.key
+*.crt
+
+# System and logs
+*.log
+*.tmp
+*.swp
+*~
+.DS_Store
+Thumbs.db
+
+# IDEs
+.idea/
+.vscode/
