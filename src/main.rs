@@ -1,15 +1,19 @@
+mod cli;
 mod config;
 mod controller;
 mod domain;
 mod server;
 mod service;
 
+use cli::run_bootstrap_wizard_if_needed;
 use config::NetworkConfig;
 use controller::NetworkAddressingController;
 use server::NetworkServer;
 use service::{
-    DeclarativeNetworkService, LinuxDhcpService, LinuxNetworkManagerBackend, SystemCommandExecutor,
+    DeclarativeNetworkService, FirewallEngine, LinuxDhcpService, LinuxNetworkManagerBackend,
+    NetworkDiscoveryService, SystemCommandExecutor,
 };
+use std::env;
 use std::sync::Arc;
 use tracing::info;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
@@ -24,10 +28,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with(tracing_subscriber::fmt::layer())
         .init();
 
-    info!("Initializing Astral Network & DHCP Engine (Rust OOP Architecture)...");
+    info!("Initializing Astral Network & Addressing Engine (Rust OOP Architecture)...");
 
     // 1. Configuration
     let config = Arc::new(NetworkConfig::load());
+    let force_bootstrap = env::args().any(|arg| arg == "--bootstrap" || arg == "-b");
+
     info!(
         "NetworkConfig: host={}, port={}, dry_run={}",
         config.host(),
@@ -35,22 +41,28 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         config.dry_run()
     );
 
-    // 2. Command Executor
-    let executor = Arc::new(SystemCommandExecutor::new(config.dry_run()));
+    // 2. Non-Destructive Boot & Discovery Principle:
+    // If existing interfaces already have IP, PRESERVE them completely without touching.
+    // If NO interface has an IP (or --bootstrap was requested), launch the interactive CLI wizard.
+    let _configured = run_bootstrap_wizard_if_needed(force_bootstrap, config.port());
 
-    // 3. NetworkManager Backend
+    // 3. Ensure host firewall access (WebUI port & SSH)
+    FirewallEngine::ensure_host_ports_open(config.port());
+
+    // 4. Command Executor & NetworkManager Backend
+    let executor = Arc::new(SystemCommandExecutor::new(config.dry_run()));
     let nm_backend = Arc::new(LinuxNetworkManagerBackend::new(executor.clone()));
 
-    // 4. DHCP Service Layer (Integrated ISC DHCP Server Management)
+    // 5. DHCP Service Layer
     let dhcp_service = Arc::new(LinuxDhcpService::default_service(executor.clone()));
 
-    // 5. Declarative Network & Addressing Service
+    // 6. Declarative Network & Addressing Service
     let network_service = Arc::new(DeclarativeNetworkService::new(nm_backend, dhcp_service));
 
-    // 6. Controller Layer
+    // 7. Controller Layer
     let network_controller = Arc::new(NetworkAddressingController::new(network_service));
 
-    // 7. Application Server
+    // 8. Application Server
     let server = NetworkServer::new(config, network_controller);
     server.run().await?;
 

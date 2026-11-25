@@ -1,12 +1,17 @@
 use crate::config::NetworkConfig;
+use crate::controller::network_controller::{ConfirmCommitRequest, NewPeerRequest, PingRequest, RollbackRequest};
 use crate::controller::NetworkAddressingController;
+use crate::domain::inventory::{AdDnsIntegrationConfig, DeclarativeNetworkState};
 use crate::domain::NetworkAddressing;
 use axum::{
     extract::{Json, State},
+    http::{header, StatusCode, Uri},
+    response::{Html, IntoResponse, Response},
     routing::{get, post},
     Router,
 };
 use std::net::SocketAddr;
+use std::path::Path;
 use std::sync::Arc;
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::trace::TraceLayer;
@@ -36,7 +41,95 @@ impl NetworkServer {
             .allow_headers(Any);
 
         Router::new()
-            // Addressing API
+            // 1. Full Interface Inventory (Active & Inactive with MACs)
+            .route(
+                "/api/v1/network/inventory",
+                get(|State(c): State<NetworkContainer>| async move {
+                    c.controller.handle_inventory().await
+                }),
+            )
+            // 2. Link Health & Gateway check
+            .route(
+                "/api/v1/network/link-health",
+                get(|State(c): State<NetworkContainer>| async move {
+                    c.controller.handle_link_health().await
+                }),
+            )
+            // 3. Declarative State & Auto-Rollback Engine
+            .route(
+                "/api/v1/network/declarative-state",
+                get(|State(c): State<NetworkContainer>| async move {
+                    c.controller.handle_declarative_get().await
+                })
+                .post(
+                    |State(c): State<NetworkContainer>, Json(body): Json<DeclarativeNetworkState>| async move {
+                        c.controller.handle_declarative_apply(body).await
+                    },
+                ),
+            )
+            .route(
+                "/api/v1/network/confirm-commit",
+                post(
+                    |State(c): State<NetworkContainer>, Json(body): Json<ConfirmCommitRequest>| async move {
+                        c.controller.handle_confirm_commit(body).await
+                    },
+                ),
+            )
+            .route(
+                "/api/v1/network/rollback",
+                post(
+                    |State(c): State<NetworkContainer>, Json(body): Json<RollbackRequest>| async move {
+                        c.controller.handle_rollback(body).await
+                    },
+                ),
+            )
+            // 4. WireGuard VPN Endpoints
+            .route(
+                "/api/v1/network/vpn/wireguard",
+                get(|State(c): State<NetworkContainer>| async move {
+                    c.controller.handle_wireguard_get().await
+                }),
+            )
+            .route(
+                "/api/v1/network/vpn/wireguard/peer",
+                post(
+                    |State(c): State<NetworkContainer>, Json(body): Json<NewPeerRequest>| async move {
+                        c.controller.handle_wireguard_add_peer(body).await
+                    },
+                ),
+            )
+            // 5. Cloudflare Zero Trust Endpoints
+            .route(
+                "/api/v1/network/cloudflare",
+                get(|State(c): State<NetworkContainer>| async move {
+                    c.controller.handle_cloudflare_get().await
+                }),
+            )
+            // 6. Astral AD-DNS Integration Endpoints
+            .route(
+                "/api/v1/network/dns/ad-integration",
+                post(
+                    |State(c): State<NetworkContainer>, Json(body): Json<AdDnsIntegrationConfig>| async move {
+                        c.controller.handle_ad_dns_apply(body).await
+                    },
+                ),
+            )
+            // 7. Live Diagnostics Endpoints (Ping & ARP)
+            .route(
+                "/api/v1/network/diagnostics/ping",
+                post(
+                    |State(c): State<NetworkContainer>, Json(body): Json<PingRequest>| async move {
+                        c.controller.handle_diagnostics_ping(body).await
+                    },
+                ),
+            )
+            .route(
+                "/api/v1/network/diagnostics/arp",
+                get(|State(c): State<NetworkContainer>| async move {
+                    c.controller.handle_diagnostics_arp().await
+                }),
+            )
+            // 8. Addressing API (Legacy / Direct)
             .route(
                 "/api/v1/network/addressing",
                 get(|State(c): State<NetworkContainer>| async move {
@@ -62,7 +155,7 @@ impl NetworkServer {
                     },
                 ),
             )
-            // DHCP Management API
+            // 9. DHCP Management API
             .route(
                 "/api/v1/network/dhcp/status",
                 get(|State(c): State<NetworkContainer>| async move {
@@ -81,7 +174,7 @@ impl NetworkServer {
                     c.controller.handle_dhcp_restart().await
                 }),
             )
-            // Health Checks
+            // 10. Health Checks
             .route(
                 "/health",
                 get(|State(c): State<NetworkContainer>| async move {
@@ -94,6 +187,7 @@ impl NetworkServer {
                     c.controller.handle_health().await
                 }),
             )
+            .fallback(handle_static_web)
             .layer(cors)
             .layer(TraceLayer::new_for_http())
             .with_state(self.container.clone())
@@ -113,4 +207,66 @@ impl NetworkServer {
         axum::serve(listener, router).await?;
         Ok(())
     }
+}
+
+async fn handle_static_web(uri: Uri) -> Response {
+    let path = uri.path().trim_start_matches('/');
+    let dist_dirs = ["./web/dist", "/opt/astral-network/web/dist", "./dist"];
+
+    for base in &dist_dirs {
+        let file_path = Path::new(base).join(path);
+        if file_path.is_file() {
+            if let Ok(content) = tokio::fs::read(&file_path).await {
+                let mime = if path.ends_with(".js") {
+                    "application/javascript"
+                } else if path.ends_with(".css") {
+                    "text/css"
+                } else if path.ends_with(".svg") {
+                    "image/svg+xml"
+                } else if path.ends_with(".json") {
+                    "application/json"
+                } else {
+                    "text/html"
+                };
+
+                return (
+                    StatusCode::OK,
+                    [(header::CONTENT_TYPE, mime)],
+                    content,
+                ).into_response();
+            }
+        }
+    }
+
+    // Fallback to index.html for SPA routing
+    for base in &dist_dirs {
+        let index_file = Path::new(base).join("index.html");
+        if let Ok(content) = tokio::fs::read_to_string(&index_file).await {
+            return Html(content).into_response();
+        }
+    }
+
+    Html(
+        r#"<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <title>Astral Network Management Engine</title>
+  <style>
+    body { background: #030712; color: #10b981; font-family: system-ui, sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; }
+    .card { background: rgba(6, 78, 59, 0.2); border: 1px solid rgba(16, 185, 129, 0.3); border-radius: 12px; padding: 2.5rem; backdrop-filter: blur(8px); text-align: center; max-width: 500px; box-shadow: 0 8px 32px rgba(0,0,0,0.5); }
+    h1 { margin-top: 0; color: #34d399; font-size: 1.5rem; }
+    p { color: #a7f3d0; font-size: 0.95rem; line-height: 1.5; }
+    a { color: #6ee7b7; text-decoration: underline; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>Astral Network · Motor de Gerenciamento</h1>
+    <p>O backend Rust está operacional. Os arquivos estáticos da WebUI estão sendo compilados.</p>
+    <p>Consulte a API em <a href="/api/v1/network/inventory">/api/v1/network/inventory</a> ou <a href="/api/v1/network/health">/api/v1/network/health</a>.</p>
+  </div>
+</body>
+</html>"#
+    ).into_response()
 }
