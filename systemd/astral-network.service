@@ -1,0 +1,19 @@
+[Unit]
+Description=Astral Network - Declarative Network Configuration & Addressing Engine
+After=network.target network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/astral-network
+ExecStart=/opt/astral-network/astral-network
+Restart=always
+RestartSec=5
+Environment=ASTRAL_NETWORK_HOST=0.0.0.0
+Environment=ASTRAL_NETWORK_PORT=8090
+Environment=ASTRAL_NETWORK_WEB_DIST=/opt/astral-network/web/dist
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target
