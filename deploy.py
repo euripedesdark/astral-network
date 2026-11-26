@@ -19,7 +19,7 @@ import subprocess
 import time
 
 SERVICE_NAME = "astral-network"
-PORT = 8095
+PORT = 8086
 GLOBAL_DIR = "/opt/astral-network"
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
 FRONTEND_DIR = os.path.join(APP_DIR, "web")
