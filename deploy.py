@@ -156,8 +156,12 @@ WantedBy=multi-user.target
     run_sudo(f"systemctl enable {SERVICE_NAME}")
 
     log(f"Reiniciando serviço systemd '{SERVICE_NAME}'...", YELLOW)
+    run_sudo(f"systemctl stop {SERVICE_NAME} 2>/dev/null || true")
+    run_sudo(f"fuser -k {PORT}/tcp 2>/dev/null || true")
+    run_sudo(f"pkill -9 -f '{GLOBAL_DIR}/{SERVICE_NAME}' 2>/dev/null || true")
+    time.sleep(1.0)
     run_sudo(f"systemctl restart {SERVICE_NAME}")
-    time.sleep(2.0)
+    time.sleep(2.5)
 
     # 5.1 Liberação no Firewall (iptables nativo e persistência)
     log(f"Liberando porta {PORT} no firewall (iptables)...", BLUE)
