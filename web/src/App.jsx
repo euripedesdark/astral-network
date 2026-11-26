@@ -153,6 +153,18 @@ export default function App() {
   };
 
   const fetchMe = async () => {
+    if (typeof window !== "undefined" && (window.location.search.includes('logout') || window.location.search.includes('login'))) {
+      try {
+        localStorage.removeItem('astral_token');
+        await fetch('/api/v1/auth/logout', { method: 'POST' });
+      } catch (_) {}
+      document.cookie = 'ASTRAL_SESSION=; path=/; max-age=0';
+      document.cookie = 'astral_token=; path=/; max-age=0';
+      document.cookie = 'sso_token=; path=/; max-age=0';
+      setOperator(null);
+      setAuthChecking(false);
+      return;
+    }
     try {
       const res = await fetch('/api/v1/auth/me');
       if (res.ok) {
@@ -1068,10 +1080,11 @@ export default function App() {
               </span>
               <button
                 onClick={handleLogout}
+                className="ml-2 flex items-center gap-1 bg-rose-950/80 hover:bg-rose-900 border border-rose-800 text-rose-200 px-2 py-0.5 rounded text-xs font-semibold transition cursor-pointer"
                 title="Encerrar Sessão"
-                className="ml-1 text-slate-400 hover:text-rose-400 transition cursor-pointer p-0.5"
               >
-                <LogOut className="w-3.5 h-3.5" />
+                <LogOut className="w-3.5 h-3.5 text-rose-400" />
+                <span>Sair</span>
               </button>
             </div>
           )}

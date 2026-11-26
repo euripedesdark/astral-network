@@ -566,28 +566,43 @@ impl L2L3Service {
             scope.lease_time_secs * 2
         );
 
+        // Atribui IP do gateway na interface se necessário para que o dhcpd possa subir
+        if !scope.interface.is_empty() && !scope.gateway.is_empty() {
+            let _ = self.executor.execute(&format!("ip link set {} up", scope.interface));
+            let _ = self.executor.execute(&format!("ip addr replace {}/{} dev {}", scope.gateway, prefix, scope.interface));
+        }
+
+        // Garante que o arquivo de leases existe
+        let _ = self.executor.execute("mkdir -p /var/lib/dhcpd /etc/sysconfig && touch /var/lib/dhcpd/dhcpd.leases");
+        if !scope.interface.is_empty() {
+            let _ = self.executor.execute(&format!("echo 'DHCPDARGS=\"{}\"' > /etc/sysconfig/dhcpd", scope.interface));
+        }
+
         // Ensure headers exist
         if !content.contains("ddns-update-style") {
             content = format!("authoritative;\nddns-update-style none;\nlog-facility local7;\n\n{}", content);
         }
 
-        // Remove previous scope for same subnet if exists
+        // Remove previous scope for same subnet if exists to avoid duplicate declarations
         let marker = format!("subnet {} netmask", subnet_ip);
-        if content.contains(&marker) {
-            // Simplistic rewrite: append
-            content.push_str(&block);
-        } else {
-            content.push_str(&block);
+        if let Some(start_idx) = content.find(&marker) {
+            if let Some(end_idx) = content[start_idx..].find('}') {
+                content.replace_range(start_idx..(start_idx + end_idx + 1), "");
+            }
         }
+        content.push_str(&block);
 
         fs::write(conf_path, &content).map_err(|e| format!("Falha ao gravar /etc/dhcp/dhcpd.conf: {}", e))?;
 
-        // Test and restart
-        let _ = self.executor.execute("dhcpd -t -cf /etc/dhcp/dhcpd.conf 2>&1");
-        let restart_res = self.executor.execute("systemctl restart dhcpd.service");
+        // Test syntax
+        let test_res = self.executor.execute("dhcpd -t -cf /etc/dhcp/dhcpd.conf 2>&1");
+        let restart_res = self.executor.execute("systemctl restart dhcpd.service 2>&1");
         match restart_res {
             Ok(_) => Ok(format!("Escopo DHCP para {} ({}) ativado com sucesso!", scope.interface, scope.subnet_cidr)),
-            Err(e) => Ok(format!("Escopo salvo em /etc/dhcp/dhcpd.conf. Aviso do serviço: {}", e)),
+            Err(e) => {
+                let err_detail = test_res.unwrap_or(e);
+                Ok(format!("Escopo salvo em /etc/dhcp/dhcpd.conf. Aviso do serviço: {}", err_detail))
+            }
         }
     }
 
