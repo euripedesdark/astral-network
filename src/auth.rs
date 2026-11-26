@@ -413,7 +413,52 @@ pub fn authenticate_linux(user: &str, pass: &str) -> Result<AuthenticatedOperato
 }
 
 // ==============================================================================
-// PROVEDOR 2: SAMBA ACTIVE DIRECTORY / ASTRAL AUTH SERVICE
+// PROVEDOR 2: POSTGRESQL SUPERUSER
+// ==============================================================================
+pub fn authenticate_postgres(user: &str, pass: &str) -> Result<AuthenticatedOperator, String> {
+    if user.trim().is_empty() || pass.is_empty() {
+        return Err("Usuário e senha do PostgreSQL são obrigatórios".to_string());
+    }
+
+    let out = Command::new("psql")
+        .args([
+            "-h",
+            "127.0.0.1",
+            "-U",
+            user,
+            "-d",
+            "postgres",
+            "-tAc",
+            "SELECT rolsuper FROM pg_roles WHERE rolname = current_user",
+        ])
+        .env("PGPASSWORD", pass)
+        .output()
+        .map_err(|e| format!("Falha ao executar cliente PostgreSQL: {}", e))?;
+
+    if !out.status.success() {
+        let err_msg = String::from_utf8_lossy(&out.stderr);
+        return Err(format!("Falha na autenticação PostgreSQL: {}", err_msg.trim()));
+    }
+
+    let is_super = String::from_utf8_lossy(&out.stdout).trim() == "t";
+    if !is_super {
+        return Err(format!(
+            "Acesso negado: o usuário PostgreSQL '{}' não possui privilégios de superusuário (rolsuper=true)",
+            user
+        ));
+    }
+
+    Ok(AuthenticatedOperator {
+        username: user.to_string(),
+        provider: "Postgres".to_string(),
+        is_admin: true,
+        groups: vec!["superuser".to_string(), "pg_roles".to_string()],
+        has_wheel: false,
+    })
+}
+
+// ==============================================================================
+// PROVEDOR 3: SAMBA ACTIVE DIRECTORY / ASTRAL AUTH SERVICE
 // ==============================================================================
 pub fn authenticate_samba_ad(user: &str, pass: &str) -> Result<AuthenticatedOperator, String> {
     if user.trim().is_empty() || pass.is_empty() {
@@ -469,11 +514,15 @@ pub fn authenticate_any(
     match provider.unwrap_or("auto") {
         "linux" => authenticate_linux(username, password),
         "ad" | "samba" => authenticate_samba_ad(username, password),
+        "postgres" => authenticate_postgres(username, password),
         _ => {
+            if let Ok(op) = authenticate_samba_ad(username, password) {
+                return Ok(op);
+            }
             if let Ok(op) = authenticate_linux(username, password) {
                 return Ok(op);
             }
-            if let Ok(op) = authenticate_samba_ad(username, password) {
+            if let Ok(op) = authenticate_postgres(username, password) {
                 return Ok(op);
             }
             Err("Credenciais inválidas. Verifique seu usuário e senha.".to_string())

@@ -6,28 +6,21 @@ import {
   Check,
   CheckCircle,
   Cloud,
-  Copy,
-  Cpu,
   Database,
-  Download,
-  ExternalLink,
-  Flame,
   Globe,
   HardDrive,
-  HelpCircle,
   Key,
   Layers,
   Lock,
+  LogOut,
   Network,
   Play,
   Plus,
-  QrCode,
   Radio,
   RefreshCw,
   RotateCcw,
   Router,
   Save,
-  Search,
   Server,
   Settings,
   Shield,
@@ -35,14 +28,15 @@ import {
   ShieldCheck,
   Terminal,
   Trash2,
-  Upload,
+  User,
+  Users,
   Wifi,
   X,
   Zap,
 } from 'lucide-react';
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState('interfaces');
+  const [activeTab, setActiveTab] = useState('dashboard');
   const [loading, setLoading] = useState(false);
   const [interfaces, setInterfaces] = useState([]);
   const [linkHealth, setLinkHealth] = useState(null);
@@ -66,12 +60,15 @@ export default function App() {
   const [showRouteModal, setShowRouteModal] = useState(false);
   const [showStaticLeaseModal, setShowStaticLeaseModal] = useState(false);
 
-  // Authentication State (SSO / PAM / Samba AD)
-  const [user, setUser] = useState(null);
+  // Unified Authentication State (Identical to Astral AD-DNS)
+  const [operator, setOperator] = useState(null);
   const [authChecking, setAuthChecking] = useState(true);
-  const [loginForm, setLoginForm] = useState({ username: '', password: '', provider: 'ad' });
-  const [loginBusy, setLoginBusy] = useState(false);
-  const [loginError, setLoginError] = useState('');
+  const [authProvider, setAuthProvider] = useState('ad'); // 'ad', 'linux', 'postgres'
+  const [authUsername, setAuthUsername] = useState('');
+  const [authPassword, setAuthPassword] = useState('');
+  const [authSubmitting, setAuthSubmitting] = useState(false);
+  const [authError, setAuthError] = useState(null);
+  const [lang, setLang] = useState('pt');
 
   // Forms
   const [ifaceForm, setIfaceForm] = useState({
@@ -160,12 +157,12 @@ export default function App() {
       const res = await fetch('/api/v1/auth/me');
       if (res.ok) {
         const data = await res.json();
-        setUser(data);
+        setOperator(data.data || data);
       } else {
-        setUser(null);
+        setOperator(null);
       }
     } catch {
-      setUser(null);
+      setOperator(null);
     } finally {
       setAuthChecking(false);
     }
@@ -173,14 +170,18 @@ export default function App() {
 
   const handleLogin = async (e) => {
     e?.preventDefault();
-    if (loginBusy) return;
-    setLoginBusy(true);
-    setLoginError('');
+    if (authSubmitting) return;
+    setAuthSubmitting(true);
+    setAuthError(null);
     try {
       const res = await fetch('/api/v1/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(loginForm),
+        body: JSON.stringify({
+          username: authUsername,
+          password: authPassword,
+          provider: authProvider,
+        }),
       });
       const data = await res.json();
       if (res.ok && data.token) {
@@ -188,19 +189,19 @@ export default function App() {
         document.cookie = `astral_token=${encodeURIComponent(data.token)}; path=/; max-age=86400`;
         document.cookie = `sso_token=${encodeURIComponent(data.token)}; path=/; max-age=86400`;
         try { localStorage.setItem('astral_token', data.token); } catch {}
-        setUser(data.user || { username: loginForm.username, role: 'admin' });
-        showToast(`Bem-vindo, ${loginForm.username}!`, 'success');
+        setOperator(data.user || data.data || { username: authUsername, provider: authProvider, role: 'admin' });
+        showToast(`Bem-vindo, ${authUsername}!`, 'success');
         fetchInventory();
         fetchHealth();
         fetchL2L3();
         fetchVpnAndDhcp();
       } else {
-        setLoginError(data.message || data.error || 'Credenciais inválidas ou acesso negado.');
+        setAuthError(data.message || data.error || 'Credenciais inválidas ou acesso negado.');
       }
     } catch (err) {
-      setLoginError(err.message || 'Falha de comunicação com o servidor.');
+      setAuthError(err.message || 'Falha de comunicação com o servidor.');
     } finally {
-      setLoginBusy(false);
+      setAuthSubmitting(false);
     }
   };
 
@@ -212,7 +213,7 @@ export default function App() {
     document.cookie = 'astral_token=; path=/; max-age=0';
     document.cookie = 'sso_token=; path=/; max-age=0';
     try { localStorage.removeItem('astral_token'); } catch {}
-    setUser(null);
+    setOperator(null);
   };
 
   const fetchInventory = async () => {
@@ -800,87 +801,173 @@ export default function App() {
 
   const activeIfacesCount = interfaces.filter(i => i.state === 'UP').length;
 
-  if (!user && !authChecking) {
+  // ==============================================================================
+  // TELA DE LOGIN UNIFICADA IDÊNTICA AO ASTRAL AD-DNS
+  // ==============================================================================
+  if (!operator && !authChecking) {
     return (
-      <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-4 relative overflow-hidden font-sans">
-        <div className="absolute inset-0 bg-gradient-to-br from-emerald-950/20 via-slate-950 to-emerald-900/10 pointer-events-none" />
-        <div className="w-full max-w-md glass-panel p-8 rounded-2xl border border-emerald-500/30 shadow-2xl relative z-10 space-y-6">
-          <div className="text-center space-y-2">
-            <div className="w-16 h-16 mx-auto rounded-2xl bg-gradient-to-br from-emerald-500/30 to-emerald-900/60 border border-emerald-400/40 flex items-center justify-center shadow-lg shadow-emerald-500/20">
-              <Network className="w-8 h-8 text-emerald-400" />
+      <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans relative overflow-hidden">
+        {/* Top bar on login page */}
+        <div className="w-full flex items-center justify-between p-4 sm:p-6 border-b border-slate-900 bg-slate-950/60 backdrop-blur z-20">
+          <div className="flex items-center gap-3">
+            <div className="bg-indigo-600/20 border border-indigo-500/40 p-2 rounded-xl text-indigo-400">
+              <Network className="w-5 h-5" />
             </div>
-            <h1 className="text-2xl font-bold tracking-tight text-white">
-              ASTRAL <span className="text-emerald-400">NETWORK</span>
-            </h1>
-            <p className="text-xs text-slate-400">
-              Controle L2/L3, Roteamento, DHCP & Integração Active Directory
-            </p>
+            <div>
+              <span className="font-bold text-sm bg-gradient-to-r from-indigo-400 to-sky-300 bg-clip-text text-transparent">
+                Astral Network Controller
+              </span>
+              <span className="hidden sm:inline-block ml-2 text-xs text-slate-500 font-mono">v1.0.0</span>
+            </div>
           </div>
 
-          <form onSubmit={handleLogin} className="space-y-4">
-            {loginError && (
-              <div className="bg-rose-950/80 border border-rose-800 p-3 rounded-lg text-rose-200 text-xs font-mono">
-                {loginError}
+          <div className="flex items-center gap-1.5 bg-slate-900 border border-slate-700/80 rounded-lg px-2.5 py-1.5 text-xs">
+            <Globe className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
+            <select
+              value={lang}
+              onChange={(e) => setLang(e.target.value)}
+              className="bg-transparent text-slate-200 text-xs font-semibold focus:outline-none cursor-pointer pr-2"
+            >
+              <option value="pt" className="bg-slate-900 text-slate-100">🇧🇷 Português (Brasil)</option>
+              <option value="en" className="bg-slate-900 text-slate-100">🇺🇸 English (US)</option>
+              <option value="es" className="bg-slate-900 text-slate-100">🇪🇸 Español (España)</option>
+              <option value="fr" className="bg-slate-900 text-slate-100">🇫🇷 Français (France)</option>
+            </select>
+          </div>
+        </div>
+
+        <div className="flex-1 flex items-center justify-center p-4 z-10">
+          <div className="w-full max-w-md bg-slate-900/95 border border-slate-800 rounded-2xl shadow-2xl p-6 sm:p-8 backdrop-blur">
+            <div className="text-center mb-6">
+              <div className="inline-flex p-3 rounded-2xl bg-indigo-500/10 border border-indigo-500/30 text-indigo-400 mb-3">
+                <Lock className="w-7 h-7" />
+              </div>
+              <h2 className="text-xl font-bold text-slate-100 tracking-wide">Acesso Unificado Astral</h2>
+              <p className="text-xs text-slate-400 mt-1 max-w-xs mx-auto">
+                Autenticação centralizada para infraestrutura e serviços Astral
+              </p>
+            </div>
+
+            {/* Provider Tabs (Samba AD, Linux Sudo, PostgreSQL) */}
+            <div className="grid grid-cols-3 gap-1.5 bg-slate-950 p-1 rounded-xl border border-slate-800/80 mb-5">
+              <button
+                type="button"
+                onClick={() => { setAuthProvider('ad'); setAuthError(null); }}
+                className={`flex flex-col items-center py-2 px-1 rounded-lg text-[11px] font-semibold transition cursor-pointer ${
+                  authProvider === 'ad'
+                    ? 'bg-indigo-600 text-white shadow'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                <Shield className="w-4 h-4 mb-1" />
+                <span className="truncate w-full text-center">Samba AD / SSO</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => { setAuthProvider('linux'); setAuthError(null); }}
+                className={`flex flex-col items-center py-2 px-1 rounded-lg text-[11px] font-semibold transition cursor-pointer ${
+                  authProvider === 'linux'
+                    ? 'bg-indigo-600 text-white shadow'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                <Terminal className="w-4 h-4 mb-1" />
+                <span className="truncate w-full text-center">Linux Sudo</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => { setAuthProvider('postgres'); setAuthError(null); }}
+                className={`flex flex-col items-center py-2 px-1 rounded-lg text-[11px] font-semibold transition cursor-pointer ${
+                  authProvider === 'postgres'
+                    ? 'bg-indigo-600 text-white shadow'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                <Database className="w-4 h-4 mb-1" />
+                <span className="truncate w-full text-center">PostgreSQL</span>
+              </button>
+            </div>
+
+            <div className="bg-slate-950/70 border border-slate-800/80 rounded-lg p-3 mb-5 text-[11px] text-slate-400 leading-relaxed">
+              {authProvider === 'ad' && "Acesso via credenciais do domínio Samba AD ou token SSO emitido pelo auth-service."}
+              {authProvider === 'linux' && "Acesso de administrador de sistema operacional com privilégios sudo (wheel/sudo) ou root."}
+              {authProvider === 'postgres' && "Acesso via banco de dados para qualquer superusuário PostgreSQL (rolsuper = true)."}
+            </div>
+
+            {authError && (
+              <div className="mb-4 p-3 rounded-lg bg-rose-950/60 border border-rose-800/60 text-rose-200 text-xs flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4 shrink-0 text-rose-400" />
+                <span>{authError}</span>
               </div>
             )}
 
-            <div>
-              <label className="block text-xs font-medium text-slate-300 mb-1">Provedor de Autenticação</label>
-              <select
-                value={loginForm.provider}
-                onChange={e => setLoginForm({ ...loginForm, provider: e.target.value })}
-                className="w-full glass-input px-3 py-2 rounded-lg text-xs bg-slate-900 text-slate-200 border border-emerald-500/30"
+            <form onSubmit={handleLogin} className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 mb-1.5">Usuário</label>
+                <div className="relative">
+                  <User className="w-4 h-4 absolute left-3 top-3 text-slate-500" />
+                  <input
+                    type="text"
+                    required
+                    value={authUsername}
+                    onChange={(e) => setAuthUsername(e.target.value)}
+                    placeholder={
+                      authProvider === 'ad' ? "Administrator" :
+                      authProvider === 'linux' ? "euripedes / root" : "postgres"
+                    }
+                    className="w-full bg-slate-950 border border-slate-800 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 rounded-lg pl-9 pr-3 py-2 text-sm text-slate-100 placeholder-slate-600 transition focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 mb-1.5">Senha</label>
+                <div className="relative">
+                  <Key className="w-4 h-4 absolute left-3 top-3 text-slate-500" />
+                  <input
+                    type="password"
+                    required
+                    value={authPassword}
+                    onChange={(e) => setAuthPassword(e.target.value)}
+                    placeholder="••••••••"
+                    className="w-full bg-slate-950 border border-slate-800 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 rounded-lg pl-9 pr-3 py-2 text-sm text-slate-100 placeholder-slate-600 transition focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              <button
+                type="submit"
+                disabled={authSubmitting}
+                className="w-full mt-2 py-2.5 px-4 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-sm transition shadow-lg shadow-indigo-600/30 flex items-center justify-center gap-2 disabled:opacity-50 cursor-pointer"
               >
-                <option value="ad">Samba Active Directory / SSO (Kerberos)</option>
-                <option value="pam">Linux Local PAM (root / sudo / wheel)</option>
-                <option value="local">Credencial Local Astral</option>
-              </select>
-            </div>
-
-            <div>
-              <label className="block text-xs font-medium text-slate-300 mb-1">Usuário / Login</label>
-              <input
-                type="text"
-                required
-                value={loginForm.username}
-                onChange={e => setLoginForm({ ...loginForm, username: e.target.value })}
-                placeholder="ex.: Administrator ou root"
-                className="w-full glass-input px-3 py-2 rounded-lg text-xs bg-slate-900 text-white border border-emerald-500/30 focus:border-emerald-400"
-              />
-            </div>
-
-            <div>
-              <label className="block text-xs font-medium text-slate-300 mb-1">Senha</label>
-              <input
-                type="password"
-                required
-                value={loginForm.password}
-                onChange={e => setLoginForm({ ...loginForm, password: e.target.value })}
-                placeholder="••••••••••••"
-                className="w-full glass-input px-3 py-2 rounded-lg text-xs bg-slate-900 text-white border border-emerald-500/30 focus:border-emerald-400"
-              />
-            </div>
-
-            <button
-              type="submit"
-              disabled={loginBusy}
-              className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-lg text-xs transition shadow-lg shadow-emerald-950 flex items-center justify-center gap-2"
-            >
-              {loginBusy ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Lock className="w-4 h-4" />}
-              {loginBusy ? 'Autenticando...' : 'Acessar Console de Rede'}
-            </button>
-          </form>
-
-          <div className="pt-4 border-t border-emerald-500/15 text-center text-[11px] text-slate-500">
-            Sessão única compatível com Astral AD-DNS e Internet Security
+                {authSubmitting ? (
+                  <>
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                    <span>Autenticando...</span>
+                  </>
+                ) : (
+                  <>
+                    <Lock className="w-4 h-4" />
+                    <span>Entrar no Sistema</span>
+                  </>
+                )}
+              </button>
+            </form>
           </div>
+        </div>
+
+        <div className="w-full text-center py-3 text-[11px] text-slate-500 border-t border-slate-900 bg-slate-950/40">
+          Política Unificada de Acesso: Samba AD / OAuth2, Linux Sudo, PostgreSQL Superuser ou Auth-Service SSO.
         </div>
       </div>
     );
   }
 
+  // ==============================================================================
+  // DASHBOARD PRINCIPAL COM SIDEBAR NOC
+  // ==============================================================================
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-emerald-500 selection:text-white">
+    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans">
       {/* Toast Notification */}
       {toast && (
         <div className={`fixed top-4 right-4 z-50 px-4 py-3 rounded-lg shadow-xl border flex items-center gap-3 backdrop-blur-md transition-all ${
@@ -925,203 +1012,314 @@ export default function App() {
       )}
 
       {/* Top Header */}
-      <header className="glass-panel border-b border-emerald-500/20 px-6 py-4 sticky top-0 z-30">
-        <div className="max-w-7xl mx-auto flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-500/30 to-emerald-900/60 border border-emerald-400/40 flex items-center justify-center shadow-lg shadow-emerald-500/20">
-              <Network className="w-6 h-6 text-emerald-400" />
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <h1 className="text-lg font-bold tracking-tight text-white flex items-center gap-1.5">
-                  ASTRAL <span className="text-emerald-400">NETWORK</span>
-                </h1>
-                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
-                  v1.0 · Rust Engine
-                </span>
-              </div>
-              <p className="text-xs text-emerald-200/70">
-                Roteamento Declarativo, L2/L3 Control, DHCP Server & Integração AD-DNS
-              </p>
-            </div>
+      <header className="bg-slate-900/90 border-b border-slate-800 backdrop-blur sticky top-0 z-30 px-6 py-3.5 flex items-center justify-between shadow-lg">
+        <div className="flex items-center gap-4">
+          <div className="bg-indigo-600/20 border border-indigo-500/40 p-2 rounded-xl text-indigo-400 shadow-inner">
+            <Network className="w-6 h-6" />
           </div>
-
-          {/* Quick Metrics Bar */}
-          <div className="flex flex-wrap items-center gap-3 text-xs">
-            <div className="glass-card px-3 py-1.5 rounded-lg flex items-center gap-2">
-              <Activity className="w-4 h-4 text-emerald-400" />
-              <div>
-                <span className="text-slate-400 text-[10px] block">Interfaces Ativas</span>
-                <span className="font-semibold text-emerald-300">{activeIfacesCount} / {interfaces.length} UP</span>
-              </div>
+          <div>
+            <div className="flex items-center gap-2.5">
+              <h1 className="text-lg font-bold tracking-wide bg-gradient-to-r from-indigo-400 via-sky-300 to-indigo-200 bg-clip-text text-transparent">
+                Astral Network Controller
+              </h1>
+              <span className="text-[10px] px-2 py-0.5 rounded-full bg-indigo-950 border border-indigo-700 text-indigo-300 font-mono font-medium">
+                v1.0 · L2/L3 Engine
+              </span>
             </div>
-
-            <div className="glass-card px-3 py-1.5 rounded-lg flex items-center gap-2">
-              <Globe className="w-4 h-4 text-cyan-400" />
-              <div>
-                <span className="text-slate-400 text-[10px] block">Gateway WAN</span>
-                <span className="font-semibold text-cyan-300">
-                  {linkHealth?.default_gateway || "Detectando..."} {linkHealth?.gateway_rtt_ms ? `(${linkHealth.gateway_rtt_ms.toFixed(1)}ms)` : ""}
-                </span>
-              </div>
-            </div>
-
-            <div className="glass-card px-3 py-1.5 rounded-lg flex items-center gap-2">
-              <ShieldCheck className="w-4 h-4 text-emerald-400" />
-              <div>
-                <span className="text-slate-400 text-[10px] block">Astral AD-DNS</span>
-                <span className="font-semibold text-emerald-300">Conditional Forwarder Ativo</span>
-              </div>
-            </div>
-
-            <button
-              onClick={() => { fetchInventory(); fetchHealth(); fetchL2L3(); fetchVpnAndDhcp(); showToast("Atualizado com o kernel!", "info"); }}
-              disabled={loading}
-              className="p-2 glass-card hover:bg-emerald-950/60 rounded-lg text-emerald-300 transition"
-              title="Recarregar do SO"
-            >
-              <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-            </button>
-
-            {user && (
-              <div className="glass-card px-3 py-1.5 rounded-lg flex items-center gap-2 border border-emerald-500/30">
-                <ShieldCheck className="w-4 h-4 text-emerald-400" />
-                <div>
-                  <span className="text-slate-400 text-[10px] block">{user.role || 'Operador'}</span>
-                  <span className="font-semibold text-emerald-300">{user.username}</span>
-                </div>
-                <button
-                  onClick={handleLogout}
-                  className="ml-1 p-1 hover:bg-rose-950/60 rounded text-slate-400 hover:text-rose-300 transition"
-                  title="Sair / Encerrar Sessão"
-                >
-                  <Lock className="w-3.5 h-3.5" />
-                </button>
-              </div>
-            )}
+            <p className="text-xs text-slate-400 hidden sm:block">Controle de Interfaces, Roteamento L3, Servidor DHCP & Integração AD-DNS</p>
           </div>
         </div>
 
-        {/* Navigation Tabs */}
-        <div className="max-w-7xl mx-auto mt-4 pt-3 border-t border-emerald-500/15 flex flex-wrap items-center gap-1">
-          {[
-            { id: 'interfaces', label: 'Interfaces & L2 (VLANs, Bridges, Bonds)', icon: Layers },
-            { id: 'firewall', label: 'Tabela de Roteamento L3 & Port Forwarding', icon: Shield },
-            { id: 'connections', label: 'Conexões: Link, P2P & WireGuard', icon: Radio },
-            { id: 'dhcp_ad', label: 'Servidor DHCP & Integração AD-DNS', icon: Server },
-            { id: 'security', label: 'Segurança & Diagnóstico (Ping/ARP)', icon: Terminal },
-          ].map(tab => {
-            const Icon = tab.icon;
-            const isActive = activeTab === tab.id;
-            return (
+        {/* Status Indicators & Operator Badge */}
+        <div className="flex items-center gap-3 text-xs">
+          <div className="hidden sm:flex items-center gap-2 bg-slate-950/80 border border-slate-800 px-3 py-1.5 rounded-lg">
+            <div className="flex items-center gap-1.5">
+              <Activity className="w-3.5 h-3.5 text-emerald-400" />
+              <span className="text-slate-300 font-medium">{activeIfacesCount} / {interfaces.length} UP</span>
+            </div>
+            <span className="text-slate-700">|</span>
+            <div className="flex items-center gap-1.5">
+              <Globe className="w-3.5 h-3.5 text-cyan-400" />
+              <span className="text-slate-300 font-medium">{linkHealth?.default_gateway || "Gateway WAN"}</span>
+            </div>
+            <span className="text-slate-700">|</span>
+            <div className="flex items-center gap-1.5">
+              <span className={`w-2 h-2 rounded-full ${dhcpStatus?.active ? 'bg-emerald-400 animate-pulse' : 'bg-rose-500'}`} />
+              <span className="text-slate-300 font-medium">DHCP: {dhcpStatus?.active ? 'Ativo' : 'Inativo'}</span>
+            </div>
+          </div>
+
+          <button
+            onClick={() => { fetchInventory(); fetchHealth(); fetchL2L3(); fetchVpnAndDhcp(); showToast("Atualizado com o kernel!", "info"); }}
+            disabled={loading}
+            className="p-2 bg-slate-950 hover:bg-slate-800 border border-slate-800 rounded-lg text-slate-300 transition"
+            title="Recarregar dados do SO"
+          >
+            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin text-indigo-400' : ''}`} />
+          </button>
+
+          {/* Operator Badge with Logout */}
+          {operator && (
+            <div className="flex items-center gap-2 bg-slate-950 border border-slate-800 px-2.5 py-1 rounded-lg shadow-inner">
+              <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
+              <span className="font-semibold text-indigo-300 font-mono">{operator.username}</span>
+              <span className="px-1.5 py-0.5 rounded text-[10px] uppercase font-bold bg-indigo-950 text-indigo-400 border border-indigo-800/60">
+                {operator.provider || 'admin'}
+              </span>
               <button
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id)}
-                className={`px-3.5 py-2 rounded-lg text-xs font-semibold flex items-center gap-2 transition-all ${
-                  isActive
-                    ? 'bg-emerald-500/25 text-emerald-300 border border-emerald-400/50 shadow-md shadow-emerald-950/40'
-                    : 'text-slate-400 hover:text-slate-200 hover:bg-emerald-950/30'
-                }`}
+                onClick={handleLogout}
+                title="Encerrar Sessão"
+                className="ml-1 text-slate-400 hover:text-rose-400 transition cursor-pointer p-0.5"
               >
-                <Icon className={`w-4 h-4 ${isActive ? 'text-emerald-400' : 'text-slate-500'}`} />
-                {tab.label}
+                <LogOut className="w-3.5 h-3.5" />
               </button>
-            );
-          })}
+            </div>
+          )}
         </div>
       </header>
 
-      {/* Main Content Area */}
-      <main className="flex-1 max-w-7xl w-full mx-auto p-6 space-y-6">
-        {/* TAB 1: INTERFACES & L2 */}
-        {activeTab === 'interfaces' && (
-          <div className="space-y-6">
-            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-              <div>
-                <h2 className="text-base font-bold text-white flex items-center gap-2">
-                  <Layers className="w-5 h-5 text-emerald-400" />
-                  Inventário Completo de Interfaces de Rede (Kernel)
-                </h2>
-                <p className="text-xs text-slate-400">
-                  Todas as interfaces físicas, virtuais, VLANs e bridges com endereços MAC permanentes e controle UP/DOWN.
-                </p>
-              </div>
+      {/* Main Container with Left Sidebar */}
+      <div className="flex-1 flex flex-col md:flex-row">
+        {/* Navigation Sidebar */}
+        <aside className="w-full md:w-64 bg-slate-900/60 border-r border-slate-800/80 p-3 shrink-0 flex flex-row md:flex-col gap-1 overflow-x-auto">
+          <NavItem active={activeTab === 'dashboard'} onClick={() => setActiveTab('dashboard')} icon={<Activity className="w-4 h-4" />} label="Painel NOC / Resumo" />
+          <NavItem active={activeTab === 'interfaces'} onClick={() => setActiveTab('interfaces')} icon={<Layers className="w-4 h-4 text-emerald-400" />} label="1. Interfaces Físicas (NICs)" badge={`${activeIfacesCount} UP`} />
+          <NavItem active={activeTab === 'vlans'} onClick={() => setActiveTab('vlans')} icon={<Layers className="w-4 h-4 text-purple-400" />} label="2. VLANs 802.1Q (Trunk)" badge={vlans.length} />
+          <NavItem active={activeTab === 'bridges'} onClick={() => setActiveTab('bridges')} icon={<Router className="w-4 h-4 text-indigo-400" />} label="3. Linux Bridges (br0)" badge={bridges.length} />
+          <NavItem active={activeTab === 'bonds'} onClick={() => setActiveTab('bonds')} icon={<ArrowDownUp className="w-4 h-4 text-cyan-400" />} label="4. Bonding LACP (802.3ad)" badge={bonds.length} />
+          <NavItem active={activeTab === 'routes'} onClick={() => setActiveTab('routes')} icon={<Globe className="w-4 h-4 text-sky-400" />} label="5. Roteamento L3 & PBR" badge={routes.length} />
+          <NavItem active={activeTab === 'dhcp_scopes'} onClick={() => setActiveTab('dhcp_scopes')} icon={<Server className="w-4 h-4 text-emerald-400" />} label="6. Escopos DHCP" badge={dhcpStatus?.scopes?.length || 0} />
+          <NavItem active={activeTab === 'dhcp_static'} onClick={() => setActiveTab('dhcp_static')} icon={<Key className="w-4 h-4 text-amber-400" />} label="7. Reservas Estáticas (MAC)" badge={staticLeases.length} />
+          <NavItem active={activeTab === 'dhcp_leases'} onClick={() => setActiveTab('dhcp_leases')} icon={<Radio className="w-4 h-4 text-teal-400" />} label="8. Concessões Ativas" badge={activeLeases.length} />
+          <NavItem active={activeTab === 'ad_dns'} onClick={() => setActiveTab('ad_dns')} icon={<ShieldCheck className="w-4 h-4 text-indigo-400" />} label="9. Integração Astral AD-DNS" />
+          <NavItem active={activeTab === 'wireguard'} onClick={() => setActiveTab('wireguard')} icon={<Shield className="w-4 h-4 text-emerald-400" />} label="10. WireGuard VPN" badge={wireguard?.peers?.length || 0} />
+          <NavItem active={activeTab === 'cloudflare'} onClick={() => setActiveTab('cloudflare')} icon={<Cloud className="w-4 h-4 text-cyan-400" />} label="11. Cloudflare Zero Trust" />
+          <NavItem active={activeTab === 'diagnostics'} onClick={() => setActiveTab('diagnostics')} icon={<Terminal className="w-4 h-4 text-amber-400" />} label="12. Diagnóstico (Ping & ARP)" />
+          <NavItem active={activeTab === 'declarative'} onClick={() => setActiveTab('declarative')} icon={<Save className="w-4 h-4 text-rose-400" />} label="13. Rollback & Declarativo" />
+        </aside>
 
-              <div className="flex items-center gap-2">
+        {/* Tab Content */}
+        <main className="flex-1 p-5 lg:p-7 overflow-y-auto space-y-6">
+
+          {/* DASHBOARD TAB */}
+          {activeTab === 'dashboard' && (
+            <div className="space-y-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className="text-xl font-bold text-white flex items-center gap-2">
+                    <Activity className="w-5 h-5 text-indigo-400" />
+                    Visão Geral da Rede & Estado do Host
+                  </h2>
+                  <p className="text-xs text-slate-400">
+                    Monitoramento em tempo real da topologia de rede, links de internet, servidor DHCP e túneis.
+                  </p>
+                </div>
                 <button
                   onClick={handleApplyDeclarative}
-                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-bold transition flex items-center gap-2 shadow-lg shadow-emerald-950"
+                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-bold transition flex items-center gap-2 shadow-lg shadow-indigo-950"
                 >
                   <Save className="w-4 h-4" />
-                  Aplicar c/ Auto-Rollback (60s)
+                  Salvar Estado c/ Auto-Rollback (60s)
                 </button>
               </div>
-            </div>
 
-            {/* Interfaces Table */}
-            <div className="glass-panel rounded-xl overflow-hidden border border-emerald-500/20">
-              <div className="overflow-x-auto">
+              {/* Quick Metrics Grid */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                <div className="bg-slate-900/80 border border-slate-800 p-4 rounded-xl flex items-center gap-3 shadow">
+                  <div className="p-3 bg-emerald-500/10 border border-emerald-500/20 rounded-lg text-emerald-400">
+                    <Layers className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <span className="text-[11px] text-slate-400 block font-medium">Interfaces no Kernel</span>
+                    <strong className="text-lg text-white font-bold">{activeIfacesCount} UP / {interfaces.length} Total</strong>
+                  </div>
+                </div>
+
+                <div className="bg-slate-900/80 border border-slate-800 p-4 rounded-xl flex items-center gap-3 shadow">
+                  <div className="p-3 bg-cyan-500/10 border border-cyan-500/20 rounded-lg text-cyan-400">
+                    <Globe className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <span className="text-[11px] text-slate-400 block font-medium">Gateway WAN</span>
+                    <strong className="text-sm text-cyan-300 font-mono block truncate max-w-[150px]">
+                      {linkHealth?.default_gateway || "Detectando..."}
+                    </strong>
+                    <span className="text-[10px] text-slate-400">
+                      {linkHealth?.gateway_rtt_ms ? `Latência: ${linkHealth.gateway_rtt_ms.toFixed(1)}ms` : "Conectado"}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="bg-slate-900/80 border border-slate-800 p-4 rounded-xl flex items-center gap-3 shadow">
+                  <div className="p-3 bg-purple-500/10 border border-purple-500/20 rounded-lg text-purple-400">
+                    <Radio className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <span className="text-[11px] text-slate-400 block font-medium">Servidor DHCP</span>
+                    <strong className="text-sm text-purple-300 font-bold block">
+                      {dhcpStatus?.active ? 'Ativo (dhcpd)' : 'Inativo'}
+                    </strong>
+                    <span className="text-[10px] text-slate-400">{activeLeases.length} clientes conectados</span>
+                  </div>
+                </div>
+
+                <div className="bg-slate-900/80 border border-slate-800 p-4 rounded-xl flex items-center gap-3 shadow">
+                  <div className="p-3 bg-indigo-500/10 border border-indigo-500/20 rounded-lg text-indigo-400">
+                    <ShieldCheck className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <span className="text-[11px] text-slate-400 block font-medium">Astral AD-DNS</span>
+                    <strong className="text-sm text-indigo-300 font-bold block">Source of Truth</strong>
+                    <span className="text-[10px] text-slate-400">Conditional Forwarder</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Quick Actions Grid */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div className="bg-slate-900/80 border border-slate-800 p-5 rounded-xl space-y-3">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                      <Layers className="w-4 h-4 text-purple-400" />
+                      VLANs 802.1Q
+                    </h3>
+                    <button onClick={() => setShowVlanModal(true)} className="text-xs text-indigo-400 hover:text-indigo-300 font-semibold flex items-center gap-1">
+                      <Plus className="w-3.5 h-3.5" /> Adicionar
+                    </button>
+                  </div>
+                  <p className="text-xs text-slate-400">Subinterfaces virtuais com isolamento de camada 2.</p>
+                  <div className="text-xs space-y-1.5 font-mono">
+                    {vlans.length ? vlans.map((v, i) => (
+                      <div key={i} className="p-2 bg-slate-950 rounded flex items-center justify-between">
+                        <span>VLAN {v.id} ({v.parent_interface}.{v.id})</span>
+                        <span className="text-purple-400">{v.ipv4_cidr || 'Sem IP'}</span>
+                      </div>
+                    )) : <div className="text-slate-500 italic">Nenhuma VLAN configurada.</div>}
+                  </div>
+                </div>
+
+                <div className="bg-slate-900/80 border border-slate-800 p-5 rounded-xl space-y-3">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                      <Router className="w-4 h-4 text-indigo-400" />
+                      Linux Bridges
+                    </h3>
+                    <button onClick={() => setShowBridgeModal(true)} className="text-xs text-indigo-400 hover:text-indigo-300 font-semibold flex items-center gap-1">
+                      <Plus className="w-3.5 h-3.5" /> Adicionar
+                    </button>
+                  </div>
+                  <p className="text-xs text-slate-400">Switches virtuais L2 para KVM e portas locais.</p>
+                  <div className="text-xs space-y-1.5 font-mono">
+                    {bridges.length ? bridges.map((b, i) => (
+                      <div key={i} className="p-2 bg-slate-950 rounded flex items-center justify-between">
+                        <span>{b.name}</span>
+                        <span className="text-indigo-400">{b.members?.join(', ') || 'Sem portas'}</span>
+                      </div>
+                    )) : <div className="text-slate-500 italic">Nenhuma bridge configurada.</div>}
+                  </div>
+                </div>
+
+                <div className="bg-slate-900/80 border border-slate-800 p-5 rounded-xl space-y-3">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                      <Globe className="w-4 h-4 text-sky-400" />
+                      Rotas Estáticas L3
+                    </h3>
+                    <button onClick={() => setShowRouteModal(true)} className="text-xs text-indigo-400 hover:text-indigo-300 font-semibold flex items-center gap-1">
+                      <Plus className="w-3.5 h-3.5" /> Adicionar
+                    </button>
+                  </div>
+                  <p className="text-xs text-slate-400">Tabelas de roteamento e gateways do kernel.</p>
+                  <div className="text-xs space-y-1.5 font-mono">
+                    {routes.slice(0, 3).map((r, i) => (
+                      <div key={i} className="p-2 bg-slate-950 rounded flex items-center justify-between">
+                        <span>{r.destination}</span>
+                        <span className="text-sky-400 truncate max-w-[120px]">via {r.gateway || 'local'}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* TAB 1: INTERFACES FÍSICAS */}
+          {activeTab === 'interfaces' && (
+            <div className="space-y-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className="text-xl font-bold text-white flex items-center gap-2">
+                    <Layers className="w-5 h-5 text-emerald-400" />
+                    Inventário & Controle de Interfaces de Rede (NICs)
+                  </h2>
+                  <p className="text-xs text-slate-400">
+                    Controle de placas físicas: IP estático/DHCP, MTU, endereço MAC permanente/clonado e ativação UP/DOWN.
+                  </p>
+                </div>
+              </div>
+
+              <div className="bg-slate-900/90 border border-slate-800 rounded-xl overflow-hidden shadow">
                 <table className="w-full text-left text-xs">
-                  <thead className="bg-emerald-950/40 text-emerald-300 font-semibold border-b border-emerald-500/20 uppercase tracking-wider text-[10px]">
+                  <thead className="bg-slate-950 text-slate-300 font-semibold border-b border-slate-800 uppercase tracking-wider text-[10px]">
                     <tr>
-                      <th className="p-3">Interface</th>
-                      <th className="p-3">Papel</th>
-                      <th className="p-3">MAC Atual / Permanente</th>
-                      <th className="p-3">Link Físico</th>
-                      <th className="p-3">Velocidade</th>
-                      <th className="p-3">Endereços IP (IPv4)</th>
-                      <th className="p-3">MTU</th>
-                      <th className="p-3 text-right">Ações</th>
+                      <th className="p-3.5">Interface</th>
+                      <th className="p-3.5">Função (Role)</th>
+                      <th className="p-3.5">MAC Atual / Permanente</th>
+                      <th className="p-3.5">Link Físico</th>
+                      <th className="p-3.5">Velocidade</th>
+                      <th className="p-3.5">Endereço IPv4</th>
+                      <th className="p-3.5">MTU</th>
+                      <th className="p-3.5 text-right">Ações</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-emerald-500/10">
+                  <tbody className="divide-y divide-slate-800 font-mono">
                     {interfaces.map(iface => {
                       const isUp = iface.state === 'UP';
                       const hasLink = iface.carrier;
                       return (
-                        <tr key={iface.name} className="hover:bg-emerald-950/20 transition">
-                          <td className="p-3 font-mono font-medium text-white flex items-center gap-2">
+                        <tr key={iface.name} className="hover:bg-slate-800/40 transition">
+                          <td className="p-3.5 font-medium text-white flex items-center gap-2">
                             <span className={`w-2 h-2 rounded-full ${isUp ? 'bg-emerald-400' : 'bg-slate-600'}`} />
                             {iface.name}
-                            {iface.is_bridge && <span className="text-[9px] bg-indigo-950 text-indigo-300 px-1.5 py-0.2 rounded border border-indigo-700/40">Bridge</span>}
-                            {iface.is_vlan && <span className="text-[9px] bg-purple-950 text-purple-300 px-1.5 py-0.2 rounded border border-purple-700/40">VLAN {iface.vlan_id}</span>}
+                            {iface.is_bridge && <span className="text-[9px] bg-indigo-950 text-indigo-300 px-1.5 py-0.2 rounded border border-indigo-700/40 font-sans">Bridge</span>}
+                            {iface.is_vlan && <span className="text-[9px] bg-purple-950 text-purple-300 px-1.5 py-0.2 rounded border border-purple-700/40 font-sans">VLAN {iface.vlan_id}</span>}
                           </td>
-                          <td className="p-3">
+                          <td className="p-3.5 font-sans">
                             <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
                               iface.role === 'WAN' ? 'bg-cyan-950 text-cyan-300 border border-cyan-700/40' :
                               iface.role === 'LAN' ? 'bg-emerald-950 text-emerald-300 border border-emerald-700/40' :
                               iface.role === 'TRUNK' ? 'bg-purple-950 text-purple-300 border border-purple-700/40' :
-                              'bg-slate-900 text-slate-400 border border-slate-700'
+                              'bg-slate-800 text-slate-400'
                             }`}>
                               {iface.role}
                             </span>
                           </td>
-                          <td className="p-3 font-mono text-[11px] text-slate-300">
+                          <td className="p-3.5 text-[11px] text-slate-300">
                             <div>{iface.mac}</div>
                             {iface.permanent_mac && iface.permanent_mac !== iface.mac && (
                               <div className="text-[10px] text-slate-500">Real: {iface.permanent_mac}</div>
                             )}
                           </td>
-                          <td className="p-3">
+                          <td className="p-3.5 font-sans">
                             <span className={`px-2 py-0.5 rounded text-[10px] font-semibold flex items-center gap-1.5 w-fit ${
-                              hasLink ? 'text-emerald-300 bg-emerald-950/80' : 'text-slate-400 bg-slate-900'
+                              hasLink ? 'text-emerald-300 bg-emerald-950/80' : 'text-slate-400 bg-slate-950'
                             }`}>
                               <span className={`w-1.5 h-1.5 rounded-full ${hasLink ? 'bg-emerald-400 animate-pulse' : 'bg-slate-600'}`} />
                               {hasLink ? 'Conectado' : 'Sem Cabo'}
                             </span>
                           </td>
-                          <td className="p-3 font-mono text-slate-300">
+                          <td className="p-3.5 text-slate-300">
                             {iface.speed_mbps ? `${iface.speed_mbps} Mbps` : '-'}
                           </td>
-                          <td className="p-3 font-mono text-slate-200">
+                          <td className="p-3.5 text-slate-200">
                             {iface.ipv4.length > 0 ? (
-                              iface.ipv4.map((ip, i) => <div key={i} className="text-emerald-300">{ip}</div>)
+                              iface.ipv4.map((ip, i) => <div key={i} className="text-emerald-400 font-bold">{ip}</div>)
                             ) : (
-                              <span className="text-slate-500 italic">Nenhum IP atribuído</span>
+                              <span className="text-slate-500 italic font-sans">Nenhum IP atribuído</span>
                             )}
                           </td>
-                          <td className="p-3 font-mono text-slate-400">{iface.mtu}</td>
-                          <td className="p-3 text-right">
+                          <td className="p-3.5 text-slate-400">{iface.mtu}</td>
+                          <td className="p-3.5 text-right font-sans">
                             <div className="flex items-center justify-end gap-1.5">
                               <button
                                 onClick={() => handleToggleInterfaceState(iface.name, isUp)}
@@ -1135,7 +1333,7 @@ export default function App() {
                               </button>
                               <button
                                 onClick={() => openEditIface(iface)}
-                                className="px-2.5 py-1 bg-emerald-950/60 hover:bg-emerald-900/80 border border-emerald-500/30 text-emerald-300 rounded text-xs transition font-semibold"
+                                className="px-3 py-1 bg-indigo-600 hover:bg-indigo-500 text-white rounded text-xs font-semibold transition shadow"
                               >
                                 Configurar
                               </button>
@@ -1148,198 +1346,247 @@ export default function App() {
                 </table>
               </div>
             </div>
+          )}
 
-            {/* Dynamic L2 Panels: VLANs 802.1Q, Bridges & Bonding */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              {/* VLANs 802.1Q Panel */}
-              <div className="glass-panel p-5 rounded-xl border border-emerald-500/20 space-y-4">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2 text-emerald-300 font-bold text-sm">
-                    <Layers className="w-4 h-4" />
-                    VLANs 802.1Q
-                  </div>
-                  <button
-                    onClick={() => setShowVlanModal(true)}
-                    className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-[11px] font-bold transition flex items-center gap-1 shadow"
-                  >
-                    <Plus className="w-3 h-3" /> Nova VLAN
-                  </button>
+          {/* TAB 2: VLANS 802.1Q */}
+          {activeTab === 'vlans' && (
+            <div className="space-y-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className="text-xl font-bold text-white flex items-center gap-2">
+                    <Layers className="w-5 h-5 text-purple-400" />
+                    VLANs 802.1Q (Trunk & Access)
+                  </h2>
+                  <p className="text-xs text-slate-400">
+                    Criação e gerenciamento de subinterfaces virtuais com tag 802.1Q para segmentação de tráfego.
+                  </p>
                 </div>
-                <p className="text-xs text-slate-400">
-                  Cria subinterfaces virtuais com tag 802.1Q no kernel para isolamento de broadcast.
-                </p>
-
-                <div className="space-y-2 max-h-56 overflow-y-auto">
-                  {vlans.length > 0 ? (
-                    vlans.map((vl, idx) => (
-                      <div key={idx} className="p-2.5 glass-card rounded-lg flex items-center justify-between text-xs">
-                        <div>
-                          <strong className="text-purple-300 font-mono block">VLAN {vl.id} ({vl.parent_interface}.{vl.id})</strong>
-                          <span className="text-[10px] text-slate-400">{vl.ipv4_cidr || 'Sem IP'} · {vl.mode}</span>
-                        </div>
-                        <button
-                          onClick={() => handleDeleteVlan(`${vl.parent_interface}.${vl.id}`)}
-                          className="p-1 hover:bg-rose-950 text-slate-400 hover:text-rose-300 rounded transition"
-                          title="Excluir VLAN"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                    ))
-                  ) : (
-                    <div className="text-center p-4 glass-card rounded text-xs text-slate-500 italic">
-                      Nenhuma VLAN 802.1Q criada. Clique em '+ Nova VLAN' para adicionar.
-                    </div>
-                  )}
-                </div>
+                <button
+                  onClick={() => setShowVlanModal(true)}
+                  className="px-4 py-2 bg-purple-600 hover:bg-purple-500 text-white rounded-lg text-xs font-bold transition flex items-center gap-2 shadow"
+                >
+                  <Plus className="w-4 h-4" /> Nova VLAN
+                </button>
               </div>
 
-              {/* Linux Bridges Panel */}
-              <div className="glass-panel p-5 rounded-xl border border-emerald-500/20 space-y-4">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2 text-emerald-300 font-bold text-sm">
-                    <Router className="w-4 h-4" />
-                    Linux Bridges
-                  </div>
-                  <button
-                    onClick={() => setShowBridgeModal(true)}
-                    className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-[11px] font-bold transition flex items-center gap-1 shadow"
-                  >
-                    <Plus className="w-3 h-3" /> Nova Bridge
-                  </button>
-                </div>
-                <p className="text-xs text-slate-400">
-                  Pontes L2 de software para interligar interfaces físicas a switches virtuais, KVM e containers.
-                </p>
-
-                <div className="space-y-2 max-h-56 overflow-y-auto">
-                  {bridges.length > 0 ? (
-                    bridges.map((br, idx) => (
-                      <div key={idx} className="p-2.5 glass-card rounded-lg flex items-center justify-between text-xs">
-                        <div>
-                          <strong className="text-indigo-300 font-mono block">{br.name} {br.stp ? '(STP Ativo)' : ''}</strong>
-                          <span className="text-[10px] text-slate-400">
-                            Portas: {br.members?.join(', ') || 'Nenhuma'} · {br.ipv4_cidr || 'Sem IP'}
-                          </span>
-                        </div>
-                        <button
-                          onClick={() => handleDeleteBridge(br.name)}
-                          className="p-1 hover:bg-rose-950 text-slate-400 hover:text-rose-300 rounded transition"
-                          title="Excluir Bridge"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                    ))
-                  ) : (
-                    <div className="text-center p-4 glass-card rounded text-xs text-slate-500 italic">
-                      Nenhuma bridge configurada. Clique em '+ Nova Bridge' para criar.
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {/* Bonding Panel */}
-              <div className="glass-panel p-5 rounded-xl border border-emerald-500/20 space-y-4">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2 text-emerald-300 font-bold text-sm">
-                    <ArrowDownUp className="w-4 h-4" />
-                    Link Aggregation (Bond)
-                  </div>
-                  <button
-                    onClick={() => setShowBondModal(true)}
-                    className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-[11px] font-bold transition flex items-center gap-1 shadow"
-                  >
-                    <Plus className="w-3 h-3" /> Novo Bond
-                  </button>
-                </div>
-                <p className="text-xs text-slate-400">
-                  Agrega múltiplas interfaces físicas em um canal lógico redundante ou de alta velocidade (LACP).
-                </p>
-
-                <div className="space-y-2 max-h-56 overflow-y-auto">
-                  {bonds.length > 0 ? (
-                    bonds.map((bo, idx) => (
-                      <div key={idx} className="p-2.5 glass-card rounded-lg flex items-center justify-between text-xs">
-                        <div>
-                          <strong className="text-cyan-300 font-mono block">{bo.name} ({bo.mode})</strong>
-                          <span className="text-[10px] text-slate-400">
-                            Slaves: {bo.slaves?.join(', ') || 'Nenhum'} · {bo.ipv4_cidr || 'Sem IP'}
-                          </span>
-                        </div>
-                        <button
-                          onClick={() => handleDeleteBond(bo.name)}
-                          className="p-1 hover:bg-rose-950 text-slate-400 hover:text-rose-300 rounded transition"
-                          title="Excluir Bond"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                    ))
-                  ) : (
-                    <div className="text-center p-4 glass-card rounded text-xs text-slate-500 italic">
-                      Nenhum bond criado. Clique em '+ Novo Bond' para agregar placas.
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* TAB 2: ROUTING & FIREWALL */}
-        {activeTab === 'firewall' && (
-          <div className="space-y-6">
-            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-              <div>
-                <h2 className="text-base font-bold text-white flex items-center gap-2">
-                  <Shield className="w-5 h-5 text-emerald-400" />
-                  Tabela de Roteamento L3 & Proteção de Portas
-                </h2>
-                <p className="text-xs text-slate-400">
-                  Rotas estáticas do kernel, gateways de saída e redirecionamento de conexões (DNAT).
-                </p>
-              </div>
-
-              <button
-                onClick={() => setShowRouteModal(true)}
-                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-bold transition flex items-center gap-2 shadow"
-              >
-                <Plus className="w-4 h-4" /> Adicionar Rota Estática
-              </button>
-            </div>
-
-            {/* Live Kernel Routing Table */}
-            <div className="glass-panel rounded-xl overflow-hidden border border-emerald-500/20 space-y-2">
-              <div className="p-4 border-b border-emerald-500/20 flex items-center justify-between">
-                <h3 className="text-sm font-bold text-white flex items-center gap-2">
-                  <Globe className="w-4 h-4 text-emerald-400" />
-                  Rotas Ativas no Kernel (ip route show)
-                </h3>
-                <span className="text-xs text-emerald-400 font-mono">{routes.length} rotas carregadas</span>
-              </div>
-
-              <div className="overflow-x-auto">
+              <div className="bg-slate-900/90 border border-slate-800 rounded-xl overflow-hidden shadow">
                 <table className="w-full text-left text-xs">
-                  <thead className="bg-emerald-950/40 text-emerald-300 font-semibold border-b border-emerald-500/20 text-[10px] uppercase">
+                  <thead className="bg-slate-950 text-slate-300 font-semibold border-b border-slate-800 uppercase tracking-wider text-[10px]">
                     <tr>
-                      <th className="p-3">Destino / Rede</th>
-                      <th className="p-3">Gateway (Next-Hop)</th>
-                      <th className="p-3">Interface de Saída</th>
-                      <th className="p-3">Métrica</th>
-                      <th className="p-3">Origem</th>
-                      <th className="p-3 text-right">Ação</th>
+                      <th className="p-3.5">VLAN ID</th>
+                      <th className="p-3.5">Subinterface Gerada</th>
+                      <th className="p-3.5">Interface Física Pai</th>
+                      <th className="p-3.5">Endereço IPv4 / CIDR</th>
+                      <th className="p-3.5">Modo</th>
+                      <th className="p-3.5 text-right">Ações</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-emerald-500/10 font-mono">
+                  <tbody className="divide-y divide-slate-800 font-mono">
+                    {vlans.length > 0 ? (
+                      vlans.map((vl, idx) => (
+                        <tr key={idx} className="hover:bg-slate-800/40 transition">
+                          <td className="p-3.5 font-bold text-purple-400">VLAN {vl.id}</td>
+                          <td className="p-3.5 text-white font-semibold">{vl.parent_interface}.{vl.id}</td>
+                          <td className="p-3.5 text-cyan-300">{vl.parent_interface}</td>
+                          <td className="p-3.5 text-emerald-400">{vl.ipv4_cidr || '(Sem IP)'}</td>
+                          <td className="p-3.5 font-sans"><span className="px-2 py-0.5 rounded bg-purple-950 text-purple-300 text-[10px] font-bold border border-purple-800">{vl.mode}</span></td>
+                          <td className="p-3.5 text-right font-sans">
+                            <button
+                              onClick={() => handleDeleteVlan(`${vl.parent_interface}.${vl.id}`)}
+                              className="px-2.5 py-1 bg-rose-950/60 hover:bg-rose-900 border border-rose-700/40 text-rose-300 rounded text-xs transition"
+                            >
+                              Excluir
+                            </button>
+                          </td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td colSpan={6} className="p-6 text-center text-slate-500 italic font-sans">
+                          Nenhuma VLAN 802.1Q configurada. Clique em '+ Nova VLAN' para criar subinterfaces.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* TAB 3: LINUX BRIDGES */}
+          {activeTab === 'bridges' && (
+            <div className="space-y-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className="text-xl font-bold text-white flex items-center gap-2">
+                    <Router className="w-5 h-5 text-indigo-400" />
+                    Linux Bridges (Pontes de Camada 2 & KVM)
+                  </h2>
+                  <p className="text-xs text-slate-400">
+                    Interliga placas de rede físicas a switches virtuais locais para containers e máquinas virtuais.
+                  </p>
+                </div>
+                <button
+                  onClick={() => setShowBridgeModal(true)}
+                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-bold transition flex items-center gap-2 shadow"
+                >
+                  <Plus className="w-4 h-4" /> Nova Bridge
+                </button>
+              </div>
+
+              <div className="bg-slate-900/90 border border-slate-800 rounded-xl overflow-hidden shadow">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-slate-950 text-slate-300 font-semibold border-b border-slate-800 uppercase tracking-wider text-[10px]">
+                    <tr>
+                      <th className="p-3.5">Nome da Bridge</th>
+                      <th className="p-3.5">Interfaces Membros (Escravas)</th>
+                      <th className="p-3.5">Endereço IPv4 / CIDR</th>
+                      <th className="p-3.5">STP (Spanning Tree)</th>
+                      <th className="p-3.5 text-right">Ações</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800 font-mono">
+                    {bridges.length > 0 ? (
+                      bridges.map((br, idx) => (
+                        <tr key={idx} className="hover:bg-slate-800/40 transition">
+                          <td className="p-3.5 font-bold text-white">{br.name}</td>
+                          <td className="p-3.5 text-indigo-300">{br.members?.join(', ') || '(Nenhum membro)'}</td>
+                          <td className="p-3.5 text-emerald-400">{br.ipv4_cidr || '(Sem IP atribuído)'}</td>
+                          <td className="p-3.5 font-sans">
+                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                              br.stp ? 'bg-emerald-950 text-emerald-300 border border-emerald-800' : 'bg-slate-800 text-slate-400'
+                            }`}>
+                              {br.stp ? 'Habilitado' : 'Desabilitado'}
+                            </span>
+                          </td>
+                          <td className="p-3.5 text-right font-sans">
+                            <button
+                              onClick={() => handleDeleteBridge(br.name)}
+                              className="px-2.5 py-1 bg-rose-950/60 hover:bg-rose-900 border border-rose-700/40 text-rose-300 rounded text-xs transition"
+                            >
+                              Excluir
+                            </button>
+                          </td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td colSpan={5} className="p-6 text-center text-slate-500 italic font-sans">
+                          Nenhuma bridge configurada. Clique em '+ Nova Bridge' para criar pontes L2.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* TAB 4: BONDING */}
+          {activeTab === 'bonds' && (
+            <div className="space-y-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className="text-xl font-bold text-white flex items-center gap-2">
+                    <ArrowDownUp className="w-5 h-5 text-cyan-400" />
+                    Link Aggregation (Bonding / LACP 802.3ad)
+                  </h2>
+                  <p className="text-xs text-slate-400">
+                    Agrega múltiplas portas físicas em um canal de dados redundante com tolerância a falhas.
+                  </p>
+                </div>
+                <button
+                  onClick={() => setShowBondModal(true)}
+                  className="px-4 py-2 bg-cyan-600 hover:bg-cyan-500 text-white rounded-lg text-xs font-bold transition flex items-center gap-2 shadow"
+                >
+                  <Plus className="w-4 h-4" /> Novo Bond
+                </button>
+              </div>
+
+              <div className="bg-slate-900/90 border border-slate-800 rounded-xl overflow-hidden shadow">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-slate-950 text-slate-300 font-semibold border-b border-slate-800 uppercase tracking-wider text-[10px]">
+                    <tr>
+                      <th className="p-3.5">Nome do Bond</th>
+                      <th className="p-3.5">Modo de Operação</th>
+                      <th className="p-3.5">Interfaces Escravas (Slaves)</th>
+                      <th className="p-3.5">Endereço IPv4 / CIDR</th>
+                      <th className="p-3.5 text-right">Ações</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800 font-mono">
+                    {bonds.length > 0 ? (
+                      bonds.map((bo, idx) => (
+                        <tr key={idx} className="hover:bg-slate-800/40 transition">
+                          <td className="p-3.5 font-bold text-cyan-300">{bo.name}</td>
+                          <td className="p-3.5 font-sans font-semibold text-white">{bo.mode}</td>
+                          <td className="p-3.5 text-slate-300">{bo.slaves?.join(', ') || '-'}</td>
+                          <td className="p-3.5 text-emerald-400">{bo.ipv4_cidr || '(Sem IP)'}</td>
+                          <td className="p-3.5 text-right font-sans">
+                            <button
+                              onClick={() => handleDeleteBond(bo.name)}
+                              className="px-2.5 py-1 bg-rose-950/60 hover:bg-rose-900 border border-rose-700/40 text-rose-300 rounded text-xs transition"
+                            >
+                              Excluir
+                            </button>
+                          </td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td colSpan={5} className="p-6 text-center text-slate-500 italic font-sans">
+                          Nenhum bond configurado. Clique em '+ Novo Bond' para agregar interfaces.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* TAB 5: ROTEAMENTO L3 */}
+          {activeTab === 'routes' && (
+            <div className="space-y-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className="text-xl font-bold text-white flex items-center gap-2">
+                    <Globe className="w-5 h-5 text-sky-400" />
+                    Tabela de Roteamento L3 do Kernel (ip route)
+                  </h2>
+                  <p className="text-xs text-slate-400">
+                    Rotas estáticas do sistema operacional, rotas padrão de saída (gateways) e métricas.
+                  </p>
+                </div>
+                <button
+                  onClick={() => setShowRouteModal(true)}
+                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-bold transition flex items-center gap-2 shadow"
+                >
+                  <Plus className="w-4 h-4" /> Adicionar Rota Estática
+                </button>
+              </div>
+
+              <div className="bg-slate-900/90 border border-slate-800 rounded-xl overflow-hidden shadow">
+                <table className="w-full text-left text-xs font-mono">
+                  <thead className="bg-slate-950 text-slate-300 font-semibold border-b border-slate-800 uppercase tracking-wider text-[10px] font-sans">
+                    <tr>
+                      <th className="p-3.5">Destino / Rede</th>
+                      <th className="p-3.5">Gateway (Next-Hop)</th>
+                      <th className="p-3.5">Interface de Saída</th>
+                      <th className="p-3.5">Métrica</th>
+                      <th className="p-3.5">Origem / Protocolo</th>
+                      <th className="p-3.5 text-right font-sans">Ações</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800">
                     {routes.map((rt, i) => (
-                      <tr key={i} className="hover:bg-emerald-950/20 transition">
-                        <td className="p-3 text-white font-bold">{rt.destination}</td>
-                        <td className="p-3 text-emerald-300">{rt.gateway || '(Diretamente Conectada)'}</td>
-                        <td className="p-3 text-cyan-300">{rt.interface || '-'}</td>
-                        <td className="p-3 text-slate-400">{rt.metric || '-'}</td>
-                        <td className="p-3 text-slate-500">{rt.protocol || 'kernel'}</td>
-                        <td className="p-3 text-right">
+                      <tr key={i} className="hover:bg-slate-800/40 transition">
+                        <td className="p-3.5 font-bold text-white">{rt.destination}</td>
+                        <td className="p-3.5 text-emerald-400">{rt.gateway || '(Direta / Conectada)'}</td>
+                        <td className="p-3.5 text-cyan-300">{rt.interface || '-'}</td>
+                        <td className="p-3.5 text-slate-400">{rt.metric || '-'}</td>
+                        <td className="p-3.5 text-slate-500">{rt.protocol || 'kernel'}</td>
+                        <td className="p-3.5 text-right font-sans">
                           {rt.destination !== 'default' && (
                             <button
                               onClick={() => handleDeleteRoute(rt.destination)}
@@ -1355,359 +1602,192 @@ export default function App() {
                 </table>
               </div>
             </div>
+          )}
 
-            {/* Port Forwarding / Host Protection Cards */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div className="glass-panel p-5 rounded-xl border border-emerald-500/20 space-y-4">
-                <h3 className="text-sm font-bold text-emerald-300 flex items-center gap-2">
-                  <Zap className="w-4 h-4" />
-                  Redirecionamento de Portas (Port Forwarding & DNAT)
-                </h3>
-                <p className="text-xs text-slate-400">
-                  Encaminha requisições externas para servidores da rede local com suporte a Hairpin NAT.
-                </p>
-                <div className="space-y-2 text-xs font-mono">
-                  <div className="p-3 glass-card rounded-lg flex items-center justify-between">
-                    <div>
-                      <strong className="text-white block">WAN :443 ➔ 192.168.0.10:443</strong>
-                      <span className="text-[10px] text-slate-400">HTTPS Ingress · Hairpin NAT: Ativo</span>
-                    </div>
-                    <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-950 text-emerald-300 border border-emerald-700/40">Ativo</span>
-                  </div>
-                  <div className="p-3 glass-card rounded-lg flex items-center justify-between">
-                    <div>
-                      <strong className="text-white block">WAN :8095 ➔ 127.0.0.1:8095</strong>
-                      <span className="text-[10px] text-slate-400">WebUI AD-DNS Console</span>
-                    </div>
-                    <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-950 text-emerald-300 border border-emerald-700/40">Ativo</span>
-                  </div>
-                </div>
-              </div>
-
-              <div className="glass-panel p-5 rounded-xl border border-emerald-500/20 space-y-4">
-                <h3 className="text-sm font-bold text-emerald-300 flex items-center gap-2">
-                  <Lock className="w-4 h-4" />
-                  Portas de Gerenciamento do Host
-                </h3>
-                <p className="text-xs text-slate-400">
-                  Portas administrativas essenciais protegidas contra bloqueios indevidos.
-                </p>
-                <div className="space-y-2 text-xs font-mono">
-                  <div className="p-2.5 glass-card rounded-lg flex items-center justify-between">
-                    <span className="text-slate-300">WebUI Astral Network (:8086)</span>
-                    <span className="text-emerald-400 font-bold">LIBERADO</span>
-                  </div>
-                  <div className="p-2.5 glass-card rounded-lg flex items-center justify-between">
-                    <span className="text-slate-300">Terminal SSH (:22)</span>
-                    <span className="text-emerald-400 font-bold">LIBERADO</span>
-                  </div>
-                  <div className="p-2.5 glass-card rounded-lg flex items-center justify-between">
-                    <span className="text-slate-300">Serviços DHCP (:67/UDP) & DNS (:53)</span>
-                    <span className="text-emerald-400 font-bold">LIBERADO</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* TAB 3: CONNECTIONS: WIREGUARD & CLOUDFLARE */}
-        {activeTab === 'connections' && (
-          <div className="space-y-6">
-            <div>
-              <h2 className="text-base font-bold text-white flex items-center gap-2">
-                <Radio className="w-5 h-5 text-emerald-400" />
-                Conexões: Monitor de Link, WireGuard & Cloudflare Zero Trust
-              </h2>
-              <p className="text-xs text-slate-400">
-                Saúde da conexão com a internet, VPN de acesso remoto WireGuard e túneis seguros com a nuvem.
-              </p>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              {/* WireGuard VPN */}
-              <div className="glass-panel p-5 rounded-xl border border-emerald-500/20 space-y-4">
-                <div className="flex items-center justify-between">
-                  <h3 className="text-sm font-bold text-emerald-300 flex items-center gap-2">
-                    <ShieldCheck className="w-4 h-4" />
-                    WireGuard VPN Server (:51820 UDP)
-                  </h3>
-                  <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                    wireguard?.enabled ? 'bg-emerald-950 text-emerald-300 border border-emerald-700/40' : 'bg-slate-900 text-slate-400'
-                  }`}>
-                    {wireguard?.enabled ? 'Serviço Ativo' : 'Pronto'}
-                  </span>
-                </div>
-
-                <div className="text-xs space-y-2">
-                  <div className="p-2.5 glass-card rounded-lg flex items-center justify-between font-mono">
-                    <span className="text-slate-400">Subnet VPN:</span>
-                    <span className="text-emerald-300">{wireguard?.address_cidr || "10.100.0.1/24"}</span>
-                  </div>
-                  <div className="p-2.5 glass-card rounded-lg flex items-center justify-between font-mono text-[10px]">
-                    <span className="text-slate-400">Chave Pública:</span>
-                    <span className="text-slate-300 truncate max-w-[200px]">{wireguard?.public_key || "Gerada no primeiro start"}</span>
-                  </div>
-                </div>
-
-                <div className="pt-2">
-                  <h4 className="text-xs font-semibold text-white mb-2">Peers Cadastrados</h4>
-                  {wireguard?.peers?.length ? (
-                    <div className="space-y-1.5 text-xs font-mono">
-                      {wireguard.peers.map(p => (
-                        <div key={p.id} className="p-2 glass-card rounded-lg flex items-center justify-between">
-                          <span>{p.name} ({p.allowed_ips.join(', ')})</span>
-                          <span className="text-emerald-400 text-[10px]">Conectado</span>
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <div className="p-3 text-center glass-card rounded-lg text-slate-500 text-xs italic">
-                      Nenhum peer cadastrado. Gere chaves e QR Code para novos clientes.
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {/* Cloudflare Zero Trust */}
-              <div className="glass-panel p-5 rounded-xl border border-emerald-500/20 space-y-4">
-                <div className="flex items-center justify-between">
-                  <h3 className="text-sm font-bold text-emerald-300 flex items-center gap-2">
-                    <Cloud className="w-4 h-4" />
-                    Cloudflare Zero Trust (cloudflared)
-                  </h3>
-                  <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                    cloudflare?.status === 'CONNECTED' ? 'bg-emerald-950 text-emerald-300 border border-emerald-700/40' : 'bg-slate-900 text-slate-400'
-                  }`}>
-                    {cloudflare?.status || 'NÃO CONFIGURADO'}
-                  </span>
-                </div>
-
-                <p className="text-xs text-slate-400">
-                  Túneis de saída segura para conectar filiais e colaboradores sem expor portas ou IPs públicos na WAN.
-                </p>
-
-                <div className="space-y-2 text-xs">
-                  <div className="p-2.5 glass-card rounded-lg flex items-center justify-between">
-                    <span className="text-slate-400">Ingress Rules:</span>
-                    <span className="text-emerald-300 font-mono">WARP Connector Habilitado</span>
-                  </div>
-                  <div className="p-2.5 glass-card rounded-lg flex items-center justify-between">
-                    <span className="text-slate-400">Túnel Privado:</span>
-                    <span className="text-slate-300 font-mono">astral-network-tunnel</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* TAB 4: DHCP & ASTRAL AD-DNS INTEGRATION */}
-        {activeTab === 'dhcp_ad' && (
-          <div className="space-y-6">
-            <div className="flex flex-wrap items-center justify-between gap-4">
-              <div>
-                <h2 className="text-base font-bold text-white flex items-center gap-2">
-                  <Server className="w-5 h-5 text-emerald-400" />
-                  Servidor DHCP & Integração Astral AD-DNS
-                </h2>
-                <p className="text-xs text-slate-400">
-                  Gerenciamento de escopos, reservas de IP estático por MAC e encaminhamento condicional para Active Directory.
-                </p>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className={`px-2.5 py-1 rounded-full text-xs font-bold border flex items-center gap-1.5 ${
-                  dhcpStatus?.active ? 'bg-emerald-950/60 text-emerald-300 border-emerald-500/40' : 'bg-rose-950/60 text-rose-300 border-rose-500/40'
-                }`}>
-                  <span className={`w-2 h-2 rounded-full ${dhcpStatus?.active ? 'bg-emerald-400 animate-pulse' : 'bg-rose-400'}`} />
-                  {dhcpStatus?.active ? 'Daemon DHCP Ativo' : 'Daemon DHCP Inativo'}
-                </span>
-                <button
-                  onClick={async () => {
-                    try {
-                      const res = await fetch('/api/v1/network/dhcp/restart', { method: 'POST' });
-                      const d = await res.json();
-                      showToast(d.message || "Daemon DHCP reiniciado com sucesso!", res.ok ? "success" : "error");
-                      fetchVpnAndDhcp();
-                    } catch (e) {
-                      showToast("Erro ao reiniciar DHCP: " + e.message, "error");
-                    }
-                  }}
-                  className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-xs font-semibold transition flex items-center gap-1.5 border border-slate-700"
-                >
-                  <RefreshCw className="w-3.5 h-3.5" />
-                  Reiniciar Daemon
-                </button>
-              </div>
-            </div>
-
-            {/* AD-DNS Integration Highlight Box */}
-            <div className="glass-panel p-5 rounded-xl border border-emerald-400/40 bg-gradient-to-br from-emerald-950/40 via-emerald-900/20 to-slate-950">
-              <div className="flex items-start justify-between gap-4">
-                <div className="space-y-2">
-                  <div className="flex items-center gap-2">
-                    <ShieldCheck className="w-5 h-5 text-emerald-400" />
-                    <h3 className="text-sm font-bold text-white">Integração Direta com Astral AD-DNS (Source of Truth)</h3>
-                  </div>
-                  <p className="text-xs text-emerald-200/80 max-w-2xl leading-relaxed">
-                    Consultas para o domínio do AD (<strong className="text-emerald-300 font-mono">{adConfig.ad_domain}</strong> e <strong className="text-emerald-300 font-mono">_msdcs.{adConfig.ad_domain}</strong>) são encaminhadas via <em>Conditional Forwarding</em> diretamente para o IP do Controlador de Domínio (<strong className="text-emerald-300 font-mono">{adConfig.ad_dc_ips.join(', ')}:53</strong>). Não há duplicação manual de registros SRV, Kerberos ou DDNS.
+          {/* TAB 6: ESCOPOS DHCP */}
+          {activeTab === 'dhcp_scopes' && (
+            <div className="space-y-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className="text-xl font-bold text-white flex items-center gap-2">
+                    <Server className="w-5 h-5 text-emerald-400" />
+                    Configuração de Escopos DHCP (Pools por Interface)
+                  </h2>
+                  <p className="text-xs text-slate-400">
+                    Definição de subredes, faixas de distribuição, gateways e servidores DNS entregues via /etc/dhcp/dhcpd.conf.
                   </p>
                 </div>
-
                 <button
                   onClick={async () => {
-                    const res = await fetch('/api/v1/network/dns/ad-integration', {
-                      method: 'POST',
-                      headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify(adConfig),
-                    });
-                    if (res.ok) showToast("Conditional Forwarding do AD aplicado com sucesso!", "success");
+                    const res = await fetch('/api/v1/network/dhcp/restart', { method: 'POST' });
+                    const d = await res.json();
+                    showToast(d.message || "Daemon DHCP reiniciado!", res.ok ? "success" : "error");
+                    fetchVpnAndDhcp();
                   }}
-                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-bold transition shrink-0 flex items-center gap-1.5 shadow-lg shadow-emerald-950"
+                  className="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-xs font-semibold transition flex items-center gap-1.5 border border-slate-700"
                 >
-                  <RefreshCw className="w-4 h-4" />
-                  Sincronizar c/ AD DC
+                  <RefreshCw className="w-3.5 h-3.5" /> Reiniciar Serviço DHCP
                 </button>
               </div>
-            </div>
 
-            {/* Configuração de Escopo DHCP */}
-            <form onSubmit={handleSaveDhcpScopeDirect} className="glass-panel p-5 rounded-xl border border-emerald-500/20 space-y-4">
-              <div className="flex items-center justify-between border-b border-emerald-500/15 pb-3">
-                <h3 className="text-sm font-bold text-white flex items-center gap-2">
-                  <Layers className="w-4 h-4 text-emerald-400" />
-                  Configurar / Ativar Escopo DHCP (Pool por Interface LAN)
-                </h3>
-                <span className="text-xs text-slate-400 font-mono">/etc/dhcp/dhcpd.conf</span>
-              </div>
+              {/* Form de Escopo */}
+              <form onSubmit={handleSaveDhcpScopeDirect} className="bg-slate-900/90 border border-slate-800 p-5 rounded-xl space-y-4 shadow">
+                <div className="border-b border-slate-800 pb-3 flex items-center justify-between">
+                  <h3 className="text-sm font-bold text-white">Criar / Ativar Escopo em Interface LAN</h3>
+                  <span className="text-xs text-slate-500 font-mono">/etc/dhcp/dhcpd.conf</span>
+                </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
-                <div>
-                  <label className="block text-slate-300 mb-1 font-medium">Interface LAN / Bridge</label>
-                  <select
-                    value={scopeForm.iface}
-                    onChange={e => setScopeForm({ ...scopeForm, iface: e.target.value })}
-                    className="w-full glass-input px-3 py-2 rounded-lg bg-slate-900 border border-emerald-500/30 text-white"
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
+                  <div>
+                    <label className="block text-slate-300 mb-1 font-semibold">Interface LAN / Bridge</label>
+                    <select
+                      value={scopeForm.iface}
+                      onChange={e => setScopeForm({ ...scopeForm, iface: e.target.value })}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-white"
+                    >
+                      <option value="">Selecione uma interface...</option>
+                      {interfaces.filter(i => i.role !== 'WAN').map((iface, idx) => (
+                        <option key={idx} value={iface.name}>
+                          {iface.name} ({iface.ipv4?.join(', ') || 'Sem IP'} - {iface.mac})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-slate-300 mb-1 font-semibold">Subrede CIDR</label>
+                    <input
+                      type="text"
+                      value={scopeForm.subnet}
+                      onChange={e => setScopeForm({ ...scopeForm, subnet: e.target.value })}
+                      placeholder="192.168.1.0/24"
+                      className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-white font-mono"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-slate-300 mb-1 font-semibold">Gateway Padrão (Router)</label>
+                    <input
+                      type="text"
+                      value={scopeForm.gateway}
+                      onChange={e => setScopeForm({ ...scopeForm, gateway: e.target.value })}
+                      placeholder="192.168.1.1"
+                      className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-white font-mono"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-slate-300 mb-1 font-semibold">Faixa Inicial (Range Start)</label>
+                    <input
+                      type="text"
+                      value={scopeForm.start}
+                      onChange={e => setScopeForm({ ...scopeForm, start: e.target.value })}
+                      placeholder="192.168.1.100"
+                      className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-white font-mono"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-slate-300 mb-1 font-semibold">Faixa Final (Range End)</label>
+                    <input
+                      type="text"
+                      value={scopeForm.end}
+                      onChange={e => setScopeForm({ ...scopeForm, end: e.target.value })}
+                      placeholder="192.168.1.200"
+                      className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-white font-mono"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-slate-300 mb-1 font-semibold">Servidores DNS Entregues</label>
+                    <input
+                      type="text"
+                      value={scopeForm.dns}
+                      onChange={e => setScopeForm({ ...scopeForm, dns: e.target.value })}
+                      placeholder="192.168.1.1, 8.8.8.8"
+                      className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-white font-mono"
+                    />
+                  </div>
+                </div>
+
+                <div className="flex justify-end pt-2">
+                  <button
+                    type="submit"
+                    className="px-5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-bold transition flex items-center gap-1.5 shadow"
                   >
-                    <option value="">Selecione uma interface...</option>
-                    {interfaces.filter(i => i.role !== 'WAN').map((iface, idx) => (
-                      <option key={idx} value={iface.name}>
-                        {iface.name} ({iface.ipv4?.join(', ') || 'Sem IP'} - {iface.mac})
-                      </option>
+                    <Save className="w-4 h-4" /> Salvar e Ativar Escopo
+                  </button>
+                </div>
+              </form>
+
+              {/* Escopos Configurados */}
+              {dhcpStatus?.scopes && dhcpStatus.scopes.length > 0 && (
+                <div className="bg-slate-900/90 border border-slate-800 rounded-xl p-5 space-y-4">
+                  <h3 className="text-sm font-bold text-white">Escopos Ativos em Execução</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {dhcpStatus.scopes.map((sc, idx) => (
+                      <div key={idx} className="bg-slate-950 border border-slate-800 rounded-lg p-4 space-y-2 text-xs">
+                        <div className="flex items-center justify-between">
+                          <span className="font-bold text-emerald-400 font-mono text-sm">{sc.subnet}/{sc.netmask}</span>
+                          <span className="px-2 py-0.5 rounded text-[10px] bg-emerald-950 text-emerald-300 border border-emerald-700">Ativo</span>
+                        </div>
+                        <div className="grid grid-cols-2 gap-1 text-[11px] text-slate-300 font-mono pt-1">
+                          <div><span className="text-slate-500 font-sans">Faixa:</span> {sc.range_start} - {sc.range_end}</div>
+                          <div><span className="text-slate-500 font-sans">Gateway:</span> {sc.routers?.join(', ') || '-'}</div>
+                          <div className="col-span-2"><span className="text-slate-500 font-sans">DNS:</span> {sc.dns_servers?.join(', ') || '-'}</div>
+                        </div>
+                      </div>
                     ))}
-                  </select>
+                  </div>
                 </div>
+              )}
+            </div>
+          )}
 
+          {/* TAB 7: RESERVAS ESTÁTICAS */}
+          {activeTab === 'dhcp_static' && (
+            <div className="space-y-6">
+              <div className="flex items-center justify-between">
                 <div>
-                  <label className="block text-slate-300 mb-1 font-medium">Subrede CIDR</label>
-                  <input
-                    type="text"
-                    value={scopeForm.subnet}
-                    onChange={e => setScopeForm({ ...scopeForm, subnet: e.target.value })}
-                    placeholder="ex.: 192.168.1.0/24"
-                    className="w-full glass-input px-3 py-2 rounded-lg bg-slate-900 border border-emerald-500/30 text-white font-mono"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-slate-300 mb-1 font-medium">Gateway Padrão</label>
-                  <input
-                    type="text"
-                    value={scopeForm.gateway}
-                    onChange={e => setScopeForm({ ...scopeForm, gateway: e.target.value })}
-                    placeholder="ex.: 192.168.1.1"
-                    className="w-full glass-input px-3 py-2 rounded-lg bg-slate-900 border border-emerald-500/30 text-white font-mono"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-slate-300 mb-1 font-medium">Faixa Inicial (Range Start)</label>
-                  <input
-                    type="text"
-                    value={scopeForm.start}
-                    onChange={e => setScopeForm({ ...scopeForm, start: e.target.value })}
-                    placeholder="ex.: 192.168.1.100"
-                    className="w-full glass-input px-3 py-2 rounded-lg bg-slate-900 border border-emerald-500/30 text-white font-mono"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-slate-300 mb-1 font-medium">Faixa Final (Range End)</label>
-                  <input
-                    type="text"
-                    value={scopeForm.end}
-                    onChange={e => setScopeForm({ ...scopeForm, end: e.target.value })}
-                    placeholder="ex.: 192.168.1.200"
-                    className="w-full glass-input px-3 py-2 rounded-lg bg-slate-900 border border-emerald-500/30 text-white font-mono"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-slate-300 mb-1 font-medium">Servidores DNS Entregues</label>
-                  <input
-                    type="text"
-                    value={scopeForm.dns}
-                    onChange={e => setScopeForm({ ...scopeForm, dns: e.target.value })}
-                    placeholder="ex.: 192.168.1.1, 8.8.8.8"
-                    className="w-full glass-input px-3 py-2 rounded-lg bg-slate-900 border border-emerald-500/30 text-white font-mono"
-                  />
-                </div>
-              </div>
-
-              <div className="flex justify-end pt-2">
-                <button
-                  type="submit"
-                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-bold transition flex items-center gap-1.5 shadow-md shadow-emerald-950"
-                >
-                  <Save className="w-4 h-4" />
-                  Salvar e Ativar Escopo DHCP
-                </button>
-              </div>
-            </form>
-
-            {/* Reservas Estáticas (Static Leases / IP Fixo por MAC) */}
-            <div className="glass-panel p-5 rounded-xl border border-emerald-500/20 space-y-4">
-              <div className="flex items-center justify-between border-b border-emerald-500/15 pb-3">
-                <div>
-                  <h3 className="text-sm font-bold text-white flex items-center gap-2">
-                    <Key className="w-4 h-4 text-emerald-400" />
+                  <h2 className="text-xl font-bold text-white flex items-center gap-2">
+                    <Key className="w-5 h-5 text-amber-400" />
                     Reservas Estáticas de IP (DHCP Static Leases / MAC Fixo)
-                  </h3>
+                  </h2>
                   <p className="text-xs text-slate-400">
                     Fixa endereços IP específicos para servidores, impressoras e estações baseado no MAC Address.
                   </p>
                 </div>
                 <button
                   onClick={() => setShowStaticLeaseModal(true)}
-                  className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-bold transition flex items-center gap-1.5 shadow"
+                  className="px-4 py-2 bg-amber-600 hover:bg-amber-500 text-white rounded-lg text-xs font-bold transition flex items-center gap-2 shadow"
                 >
-                  <Plus className="w-3.5 h-3.5" /> Nova Reserva Estática
+                  <Plus className="w-4 h-4" /> Nova Reserva Estática
                 </button>
               </div>
 
-              <div className="overflow-x-auto">
+              <div className="bg-slate-900/90 border border-slate-800 rounded-xl overflow-hidden shadow">
                 <table className="w-full text-left text-xs font-mono">
-                  <thead className="bg-emerald-950/40 text-emerald-300 font-semibold border-b border-emerald-500/20 text-[10px] uppercase font-sans">
+                  <thead className="bg-slate-950 text-slate-300 font-semibold border-b border-slate-800 uppercase tracking-wider text-[10px] font-sans">
                     <tr>
-                      <th className="p-3">MAC Address</th>
-                      <th className="p-3">IP Fixo Reservado</th>
-                      <th className="p-3">Hostname</th>
-                      <th className="p-3">Descrição</th>
-                      <th className="p-3 text-right">Ação</th>
+                      <th className="p-3.5">MAC Address</th>
+                      <th className="p-3.5">Endereço IP Fixo</th>
+                      <th className="p-3.5">Hostname</th>
+                      <th className="p-3.5">Descrição</th>
+                      <th className="p-3.5 text-right font-sans">Ações</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-emerald-500/10">
+                  <tbody className="divide-y divide-slate-800">
                     {staticLeases.length > 0 ? (
                       staticLeases.map((st, i) => (
-                        <tr key={i} className="hover:bg-emerald-950/20 transition">
-                          <td className="p-3 text-slate-300">{st.mac}</td>
-                          <td className="p-3 text-emerald-300 font-bold">{st.ip}</td>
-                          <td className="p-3 text-white">{st.hostname}</td>
-                          <td className="p-3 text-slate-400 font-sans">{st.description || '-'}</td>
-                          <td className="p-3 text-right">
+                        <tr key={i} className="hover:bg-slate-800/40 transition">
+                          <td className="p-3.5 text-slate-300">{st.mac}</td>
+                          <td className="p-3.5 text-amber-400 font-bold">{st.ip}</td>
+                          <td className="p-3.5 text-white">{st.hostname}</td>
+                          <td className="p-3.5 text-slate-400 font-sans">{st.description || '-'}</td>
+                          <td className="p-3.5 text-right font-sans">
                             <button
                               onClick={() => handleDeleteStaticLease(st.mac)}
-                              className="px-2 py-0.5 bg-rose-950/60 hover:bg-rose-900 border border-rose-700/40 text-rose-300 rounded text-[10px] transition font-sans"
+                              className="px-2 py-0.5 bg-rose-950/60 hover:bg-rose-900 border border-rose-700/40 text-rose-300 rounded text-[10px] transition"
                             >
                               Remover
                             </button>
@@ -1716,8 +1796,8 @@ export default function App() {
                       ))
                     ) : (
                       <tr>
-                        <td colSpan={5} className="p-4 text-center text-slate-500 italic font-sans">
-                          Nenhuma reserva estática configurada. Clique em '+ Nova Reserva Estática' para adicionar.
+                        <td colSpan={5} className="p-6 text-center text-slate-500 italic font-sans">
+                          Nenhuma reserva estática cadastrada. Clique em '+ Nova Reserva Estática' para adicionar.
                         </td>
                       </tr>
                     )}
@@ -1725,43 +1805,52 @@ export default function App() {
                 </table>
               </div>
             </div>
+          )}
 
-            {/* Active Leases Table */}
-            <div className="glass-panel rounded-xl overflow-hidden border border-emerald-500/20 space-y-2">
-              <div className="p-4 border-b border-emerald-500/20 flex items-center justify-between">
-                <h3 className="text-sm font-bold text-white flex items-center gap-2">
-                  <Radio className="w-4 h-4 text-emerald-400" />
-                  Concessões DHCP Ativas em Tempo Real
-                </h3>
-                <span className="text-xs text-emerald-400 font-mono">{activeLeases.length} clientes conectados</span>
+          {/* TAB 8: CONCESSÕES ATIVAS */}
+          {activeTab === 'dhcp_leases' && (
+            <div className="space-y-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className="text-xl font-bold text-white flex items-center gap-2">
+                    <Radio className="w-5 h-5 text-teal-400" />
+                    Concessões DHCP Ativas em Tempo Real
+                  </h2>
+                  <p className="text-xs text-slate-400">
+                    Dispositivos conectados na rede local que receberam endereço IP pelo servidor DHCP.
+                  </p>
+                </div>
+                <span className="text-xs text-teal-400 font-mono bg-teal-950/60 border border-teal-800 px-3 py-1 rounded-full">
+                  {activeLeases.length} clientes conectados
+                </span>
               </div>
 
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-xs">
-                  <thead className="bg-emerald-950/40 text-emerald-300 font-semibold border-b border-emerald-500/20 text-[10px] uppercase">
+              <div className="bg-slate-900/90 border border-slate-800 rounded-xl overflow-hidden shadow">
+                <table className="w-full text-left text-xs font-mono">
+                  <thead className="bg-slate-950 text-slate-300 font-semibold border-b border-slate-800 uppercase tracking-wider text-[10px] font-sans">
                     <tr>
-                      <th className="p-3">Endereço IP</th>
-                      <th className="p-3">MAC Address</th>
-                      <th className="p-3">Hostname</th>
-                      <th className="p-3">Expiração</th>
-                      <th className="p-3 text-right">Ação</th>
+                      <th className="p-3.5">Endereço IP</th>
+                      <th className="p-3.5">MAC Address</th>
+                      <th className="p-3.5">Hostname</th>
+                      <th className="p-3.5">Expiração</th>
+                      <th className="p-3.5 text-right font-sans">Ações</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-emerald-500/10 font-mono">
+                  <tbody className="divide-y divide-slate-800">
                     {activeLeases.length ? (
                       activeLeases.map((l, i) => (
-                        <tr key={i} className="hover:bg-emerald-950/20 transition">
-                          <td className="p-3 text-emerald-300 font-bold">{l.ip}</td>
-                          <td className="p-3 text-slate-300">{l.mac}</td>
-                          <td className="p-3 text-white">{l.hostname || '-'}</td>
-                          <td className="p-3 text-slate-400">{l.ends || l.expires_at || '-'}</td>
-                          <td className="p-3 text-right">
+                        <tr key={i} className="hover:bg-slate-800/40 transition">
+                          <td className="p-3.5 text-emerald-400 font-bold">{l.ip}</td>
+                          <td className="p-3.5 text-slate-300">{l.mac}</td>
+                          <td className="p-3.5 text-white">{l.hostname || '-'}</td>
+                          <td className="p-3.5 text-slate-400">{l.ends || l.expires_at || '-'}</td>
+                          <td className="p-3.5 text-right font-sans">
                             <button
                               onClick={() => {
                                 setStaticLeaseForm({ mac: l.mac, ip: l.ip, hostname: l.hostname || '', description: '' });
                                 setShowStaticLeaseModal(true);
                               }}
-                              className="px-2 py-0.5 bg-emerald-950/60 hover:bg-emerald-900 border border-emerald-700/40 text-emerald-300 rounded text-[10px] transition"
+                              className="px-2.5 py-1 bg-emerald-950 hover:bg-emerald-900 border border-emerald-700 text-emerald-300 rounded text-xs transition font-semibold"
                             >
                               Tornar Estático
                             </button>
@@ -1770,8 +1859,8 @@ export default function App() {
                       ))
                     ) : (
                       <tr>
-                        <td colSpan={5} className="p-4 text-center text-slate-500 italic">
-                          Nenhuma concessão ativa no momento.
+                        <td colSpan={5} className="p-6 text-center text-slate-500 italic font-sans">
+                          Nenhuma concessão ativa registrada no momento.
                         </td>
                       </tr>
                     )}
@@ -1779,111 +1868,252 @@ export default function App() {
                 </table>
               </div>
             </div>
-          </div>
-        )}
+          )}
 
-        {/* TAB 5: SECURITY, ROLLBACK & DIAGNOSTICS */}
-        {activeTab === 'security' && (
-          <div className="space-y-6">
-            <div>
-              <h2 className="text-base font-bold text-white flex items-center gap-2">
-                <Terminal className="w-5 h-5 text-emerald-400" />
-                Segurança Operacional, Auto-Rollback & Diagnóstico
-              </h2>
-              <p className="text-xs text-slate-400">
-                Teste de conectividade em tempo real, visualização da tabela ARP do kernel e histórico de transações.
-              </p>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              {/* Live Ping Test */}
-              <div className="glass-panel p-5 rounded-xl border border-emerald-500/20 space-y-4">
-                <h3 className="text-sm font-bold text-emerald-300 flex items-center gap-2">
-                  <Activity className="w-4 h-4" />
-                  Teste de Conectividade (Ping ICMP)
-                </h3>
-
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    value={pingTarget}
-                    onChange={e => setPingTarget(e.target.value)}
-                    placeholder="ex.: 8.8.8.8 ou srvcloud.cloud"
-                    className="flex-1 glass-input px-3 py-2 rounded-lg text-xs bg-slate-900 border border-emerald-500/30 text-white font-mono"
-                  />
-                  <button
-                    onClick={handlePingTest}
-                    className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-bold transition flex items-center gap-1.5 shadow"
-                  >
-                    <Play className="w-3.5 h-3.5" />
-                    Disparar
-                  </button>
+          {/* TAB 9: INTEGRAÇÃO AD-DNS */}
+          {activeTab === 'ad_dns' && (
+            <div className="space-y-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className="text-xl font-bold text-white flex items-center gap-2">
+                    <ShieldCheck className="w-5 h-5 text-indigo-400" />
+                    Integração com Astral AD-DNS (Source of Truth)
+                  </h2>
+                  <p className="text-xs text-slate-400">
+                    Encaminhamento condicional sem duplicação de registros SRV, Kerberos ou DDNS do Samba AD.
+                  </p>
                 </div>
-
-                {pingResult && (
-                  <div className="p-3 bg-slate-950 border border-emerald-500/30 rounded-lg text-xs font-mono space-y-1">
-                    <div className="flex items-center justify-between text-emerald-300 font-bold">
-                      <span>Destino: {pingResult.target}</span>
-                      <span>Perda: {pingResult.packet_loss_percent}%</span>
-                    </div>
-                    {pingResult.avg_rtt_ms && (
-                      <div className="text-cyan-300">RTT Médio: {pingResult.avg_rtt_ms.toFixed(2)} ms</div>
-                    )}
-                    <pre className="text-[10px] text-slate-400 overflow-x-auto pt-2 border-t border-slate-800">
-                      {pingResult.raw_output}
-                    </pre>
-                  </div>
-                )}
+                <button
+                  onClick={async () => {
+                    const res = await fetch('/api/v1/network/dns/ad-integration', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify(adConfig),
+                    });
+                    if (res.ok) showToast("Conditional Forwarding sincronizado com o AD!", "success");
+                  }}
+                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-bold transition flex items-center gap-2 shadow"
+                >
+                  <RefreshCw className="w-4 h-4" /> Sincronizar c/ AD DC
+                </button>
               </div>
 
-              {/* ARP Table */}
-              <div className="glass-panel p-5 rounded-xl border border-emerald-500/20 space-y-4">
-                <div className="flex items-center justify-between">
-                  <h3 className="text-sm font-bold text-emerald-300 flex items-center gap-2">
-                    <Database className="w-4 h-4" />
-                    Tabela ARP / NDP do Kernel
-                  </h3>
-                  <button
-                    onClick={handleFetchArp}
-                    className="px-2.5 py-1 glass-card hover:bg-emerald-950 text-emerald-300 rounded text-[10px] transition flex items-center gap-1"
-                  >
-                    <RefreshCw className="w-3 h-3" />
-                    Consultar ARP
-                  </button>
+              <div className="bg-slate-900/90 border border-indigo-500/30 p-6 rounded-xl space-y-4 shadow-xl">
+                <div className="flex items-start gap-4">
+                  <div className="p-3 bg-indigo-500/10 border border-indigo-500/30 rounded-xl text-indigo-400">
+                    <ShieldCheck className="w-7 h-7" />
+                  </div>
+                  <div className="space-y-2">
+                    <h3 className="text-base font-bold text-white">Resolução de Nomes Sem Split-Brain</h3>
+                    <p className="text-xs text-slate-300 leading-relaxed max-w-3xl">
+                      Consultas direcionadas ao domínio do Active Directory (<strong className="text-indigo-300 font-mono">{adConfig.ad_domain}</strong> e <strong className="text-indigo-300 font-mono">_msdcs.{adConfig.ad_domain}</strong>) são encaminhadas via <em>Conditional Forwarding</em> para os IPs do Controlador de Domínio (<strong className="text-indigo-300 font-mono">{adConfig.ad_dc_ips.join(', ')}:53</strong>).
+                    </p>
+                  </div>
                 </div>
 
-                <div className="max-h-60 overflow-y-auto space-y-1 text-xs font-mono">
-                  {arpTable.length ? (
-                    arpTable.map((a, i) => (
-                      <div key={i} className="p-2 glass-card rounded flex items-center justify-between">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-4 border-t border-slate-800 text-xs font-mono">
+                  <div className="p-3 bg-slate-950 rounded-lg border border-slate-800">
+                    <span className="text-slate-500 block font-sans">Domínio AD DC Primário</span>
+                    <strong className="text-indigo-300 text-sm">{adConfig.ad_domain}</strong>
+                  </div>
+                  <div className="p-3 bg-slate-950 rounded-lg border border-slate-800">
+                    <span className="text-slate-500 block font-sans">IPs dos Controladores Samba AD</span>
+                    <strong className="text-emerald-400 text-sm">{adConfig.ad_dc_ips.join(', ')}</strong>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* TAB 10: WIREGUARD VPN */}
+          {activeTab === 'wireguard' && (
+            <div className="space-y-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className="text-xl font-bold text-white flex items-center gap-2">
+                    <Shield className="w-5 h-5 text-emerald-400" />
+                    Servidor VPN WireGuard (:51820 UDP)
+                  </h2>
+                  <p className="text-xs text-slate-400">
+                    Acesso remoto seguro e interligação matriz-filial com criptografia de ponta a ponta.
+                  </p>
+                </div>
+              </div>
+
+              <div className="bg-slate-900/90 border border-slate-800 p-6 rounded-xl space-y-4 shadow">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs font-mono">
+                  <div className="p-3 bg-slate-950 rounded-lg border border-slate-800">
+                    <span className="text-slate-500 block font-sans">Subnet VPN</span>
+                    <strong className="text-emerald-400 text-sm">{wireguard?.address_cidr || "10.100.0.1/24"}</strong>
+                  </div>
+                  <div className="p-3 bg-slate-950 rounded-lg border border-slate-800">
+                    <span className="text-slate-500 block font-sans">Chave Pública do Host</span>
+                    <strong className="text-slate-300 text-xs truncate block">{wireguard?.public_key || "Gerada automaticamente"}</strong>
+                  </div>
+                </div>
+
+                <div className="pt-2">
+                  <h4 className="text-xs font-bold text-white mb-3">Peers Cadastrados</h4>
+                  <div className="space-y-2 text-xs font-mono">
+                    {wireguard?.peers?.length ? wireguard.peers.map(p => (
+                      <div key={p.id} className="p-3 bg-slate-950 border border-slate-800 rounded-lg flex items-center justify-between">
+                        <div>
+                          <strong className="text-white block font-sans">{p.name}</strong>
+                          <span className="text-slate-400 text-[11px]">{p.allowed_ips.join(', ')}</span>
+                        </div>
+                        <span className="text-emerald-400 text-[10px] bg-emerald-950/80 border border-emerald-800 px-2 py-0.5 rounded">Ativo</span>
+                      </div>
+                    )) : (
+                      <div className="p-4 text-center text-slate-500 italic bg-slate-950 rounded-lg font-sans">
+                        Nenhum peer remoto cadastrado.
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* TAB 11: CLOUDFLARE ZERO TRUST */}
+          {activeTab === 'cloudflare' && (
+            <div className="space-y-6">
+              <div>
+                <h2 className="text-xl font-bold text-white flex items-center gap-2">
+                  <Cloud className="w-5 h-5 text-cyan-400" />
+                  Cloudflare Zero Trust (cloudflared tunnels)
+                </h2>
+                <p className="text-xs text-slate-400">
+                  Publicação segura de aplicações e conexão WARP privada sem abrir portas na WAN.
+                </p>
+              </div>
+
+              <div className="bg-slate-900/90 border border-slate-800 p-6 rounded-xl space-y-4 shadow">
+                <div className="flex items-center justify-between p-3 bg-slate-950 rounded-lg border border-slate-800">
+                  <span className="text-xs text-slate-300">Status do Daemon cloudflared:</span>
+                  <span className={`px-2.5 py-1 rounded text-xs font-bold ${
+                    cloudflare?.status === 'CONNECTED' ? 'bg-emerald-950 text-emerald-300 border border-emerald-700' : 'bg-slate-800 text-slate-400'
+                  }`}>
+                    {cloudflare?.status || 'NÃO CONFIGURADO'}
+                  </span>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* TAB 12: DIAGNÓSTICO (PING & ARP) */}
+          {activeTab === 'diagnostics' && (
+            <div className="space-y-6">
+              <div>
+                <h2 className="text-xl font-bold text-white flex items-center gap-2">
+                  <Terminal className="w-5 h-5 text-amber-400" />
+                  Diagnóstico de Rede & Verificação de Conectividade
+                </h2>
+                <p className="text-xs text-slate-400">
+                  Ferramentas embutidas de ping ICMP e inspeção da tabela de vizinhos ARP/NDP do kernel.
+                </p>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="bg-slate-900/90 border border-slate-800 p-5 rounded-xl space-y-4 shadow">
+                  <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                    <Activity className="w-4 h-4 text-emerald-400" />
+                    Teste de Ping ICMP
+                  </h3>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={pingTarget}
+                      onChange={e => setPingTarget(e.target.value)}
+                      placeholder="8.8.8.8 ou srvcloud.cloud"
+                      className="flex-1 bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs text-white font-mono"
+                    />
+                    <button
+                      onClick={handlePingTest}
+                      className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-bold transition flex items-center gap-1.5 shadow"
+                    >
+                      <Play className="w-3.5 h-3.5" /> Disparar
+                    </button>
+                  </div>
+                  {pingResult && (
+                    <div className="p-3 bg-slate-950 border border-slate-800 rounded-lg text-xs font-mono space-y-1">
+                      <div className="text-emerald-400 font-bold">Destino: {pingResult.target} · Perda: {pingResult.packet_loss_percent}%</div>
+                      {pingResult.avg_rtt_ms && <div className="text-cyan-300">RTT Médio: {pingResult.avg_rtt_ms.toFixed(2)} ms</div>}
+                      <pre className="text-[10px] text-slate-400 overflow-x-auto pt-2 border-t border-slate-800">{pingResult.raw_output}</pre>
+                    </div>
+                  )}
+                </div>
+
+                <div className="bg-slate-900/90 border border-slate-800 p-5 rounded-xl space-y-4 shadow">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                      <Database className="w-4 h-4 text-indigo-400" />
+                      Tabela ARP do Kernel
+                    </h3>
+                    <button onClick={handleFetchArp} className="text-xs text-indigo-400 hover:text-indigo-300 flex items-center gap-1 font-semibold">
+                      <RefreshCw className="w-3 h-3" /> Atualizar ARP
+                    </button>
+                  </div>
+                  <div className="max-h-60 overflow-y-auto space-y-1.5 text-xs font-mono">
+                    {arpTable.length ? arpTable.map((a, i) => (
+                      <div key={i} className="p-2 bg-slate-950 rounded flex items-center justify-between border border-slate-800">
                         <span className="text-white">{a.ip}</span>
                         <span className="text-slate-400">{a.mac}</span>
                         <span className="text-emerald-400 text-[10px]">{a.interface}</span>
                       </div>
-                    ))
-                  ) : (
-                    <div className="text-center p-4 text-slate-500 text-xs italic">
-                      Clique em 'Consultar ARP' para ler as entradas de vizinhos do kernel.
-                    </div>
-                  )}
+                    )) : (
+                      <div className="text-center p-4 text-slate-500 italic font-sans">
+                        Clique em 'Atualizar ARP' para ler as entradas de vizinhos.
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
             </div>
-          </div>
-        )}
-      </main>
+          )}
+
+          {/* TAB 13: ROLLBACK & DECLARATIVO */}
+          {activeTab === 'declarative' && (
+            <div className="space-y-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className="text-xl font-bold text-white flex items-center gap-2">
+                    <Save className="w-5 h-5 text-rose-400" />
+                    Estado Declarativo & Mecanismo de Auto-Rollback
+                  </h2>
+                  <p className="text-xs text-slate-400">
+                    Aplicações com temporizador de 60 segundos: reversão automática caso a conectividade seja perdida.
+                  </p>
+                </div>
+                <button
+                  onClick={handleApplyDeclarative}
+                  className="px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white rounded-lg text-xs font-bold transition flex items-center gap-2 shadow"
+                >
+                  <Save className="w-4 h-4" /> Aplicar c/ Rollback (60s)
+                </button>
+              </div>
+
+              <div className="bg-slate-900/90 border border-slate-800 p-6 rounded-xl space-y-4 shadow">
+                <h3 className="text-sm font-bold text-white">Segurança Contra Perda de Acesso</h3>
+                <p className="text-xs text-slate-300 leading-relaxed">
+                  Toda alteração declarativa de rede é salva em um snapshot de segurança com reversão automática. Se você alterar um IP, rota ou VLAN e não conseguir confirmar na barra superior em 60 segundos, o kernel reverte o estado anterior automaticamente.
+                </p>
+              </div>
+            </div>
+          )}
+        </main>
+      </div>
 
       {/* ============================================================================== */}
-      {/* MODALS */}
+      {/* MODALS OPERACIONAIS */}
       {/* ============================================================================== */}
 
       {/* 1. Modal de Configuração de Interface */}
       {editingIface && (
         <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-emerald-500/30 rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden animate-in fade-in zoom-in-95">
-            <div className="p-5 border-b border-emerald-500/20 flex items-center justify-between bg-slate-950/60">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden animate-in fade-in zoom-in-95">
+            <div className="p-5 border-b border-slate-800 flex items-center justify-between bg-slate-950">
               <div className="flex items-center gap-2.5">
-                <div className="p-2 bg-emerald-500/20 rounded-lg text-emerald-400 border border-emerald-500/30">
+                <div className="p-2 bg-indigo-500/20 rounded-lg text-indigo-400 border border-indigo-500/30">
                   <Settings className="w-5 h-5" />
                 </div>
                 <div>
@@ -1907,14 +2137,13 @@ export default function App() {
             </div>
 
             <div className="p-6 space-y-4 text-xs">
-              {/* Papel e Ação */}
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-slate-300 mb-1 font-semibold">Papel da Interface (Role)</label>
                   <select
                     value={ifaceForm.role}
                     onChange={e => setIfaceForm({ ...ifaceForm, role: e.target.value })}
-                    className="w-full glass-input px-3 py-2 rounded-lg bg-slate-950 border border-emerald-500/30 text-white"
+                    className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-white"
                   >
                     <option value="LAN">LAN (Rede Local Interna)</option>
                     <option value="WAN">WAN (Internet / Link Externo)</option>
@@ -1929,7 +2158,7 @@ export default function App() {
                   <select
                     value={ifaceForm.action}
                     onChange={e => setIfaceForm({ ...ifaceForm, action: e.target.value })}
-                    className="w-full glass-input px-3 py-2 rounded-lg bg-slate-950 border border-emerald-500/30 text-white"
+                    className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-white"
                   >
                     <option value="apply">Manter Ativo / Aplicar Parâmetros</option>
                     <option value="up">Forçar Ativação (ip link set up)</option>
@@ -1938,7 +2167,6 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Modo de Endereçamento */}
               <div>
                 <label className="block text-slate-300 mb-1 font-semibold">Método de Endereçamento IPv4</label>
                 <div className="grid grid-cols-2 gap-2">
@@ -1947,8 +2175,8 @@ export default function App() {
                     onClick={() => setIfaceForm({ ...ifaceForm, method: 'dhcp' })}
                     className={`py-2 rounded-lg text-xs font-semibold border transition ${
                       ifaceForm.method === 'dhcp'
-                        ? 'bg-emerald-600 text-white border-emerald-500 shadow-md shadow-emerald-950'
-                        : 'bg-slate-950 text-slate-400 border-slate-700 hover:text-white'
+                        ? 'bg-indigo-600 text-white border-indigo-500 shadow'
+                        : 'bg-slate-950 text-slate-400 border-slate-800 hover:text-white'
                     }`}
                   >
                     DHCP Cliente (Automático)
@@ -1958,8 +2186,8 @@ export default function App() {
                     onClick={() => setIfaceForm({ ...ifaceForm, method: 'static' })}
                     className={`py-2 rounded-lg text-xs font-semibold border transition ${
                       ifaceForm.method === 'static'
-                        ? 'bg-emerald-600 text-white border-emerald-500 shadow-md shadow-emerald-950'
-                        : 'bg-slate-950 text-slate-400 border-slate-700 hover:text-white'
+                        ? 'bg-indigo-600 text-white border-indigo-500 shadow'
+                        : 'bg-slate-950 text-slate-400 border-slate-800 hover:text-white'
                     }`}
                   >
                     IP Estático (Manual)
@@ -1967,9 +2195,8 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Campos IP Estático */}
               {ifaceForm.method === 'static' && (
-                <div className="space-y-3 p-3.5 bg-slate-950/70 rounded-xl border border-emerald-500/20">
+                <div className="space-y-3 p-3.5 bg-slate-950 rounded-xl border border-slate-800">
                   <div>
                     <label className="block text-slate-300 mb-1 font-medium">Endereço IPv4 / CIDR</label>
                     <input
@@ -1977,7 +2204,7 @@ export default function App() {
                       value={ifaceForm.ipv4_cidr}
                       onChange={e => setIfaceForm({ ...ifaceForm, ipv4_cidr: e.target.value })}
                       placeholder="ex.: 192.168.1.1/24"
-                      className="w-full glass-input px-3 py-2 rounded-lg bg-slate-900 border border-emerald-500/30 text-white font-mono"
+                      className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-white font-mono"
                     />
                   </div>
                   <div className="grid grid-cols-2 gap-3">
@@ -1988,7 +2215,7 @@ export default function App() {
                         value={ifaceForm.gateway}
                         onChange={e => setIfaceForm({ ...ifaceForm, gateway: e.target.value })}
                         placeholder="ex.: 192.168.1.254"
-                        className="w-full glass-input px-3 py-2 rounded-lg bg-slate-900 border border-emerald-500/30 text-white font-mono"
+                        className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-white font-mono"
                       />
                     </div>
                     <div>
@@ -1998,14 +2225,13 @@ export default function App() {
                         value={ifaceForm.dns}
                         onChange={e => setIfaceForm({ ...ifaceForm, dns: e.target.value })}
                         placeholder="1.1.1.1, 8.8.8.8"
-                        className="w-full glass-input px-3 py-2 rounded-lg bg-slate-900 border border-emerald-500/30 text-white font-mono"
+                        className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-white font-mono"
                       />
                     </div>
                   </div>
                 </div>
               )}
 
-              {/* Parâmetros Avançados */}
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-slate-300 mb-1 font-medium">MTU da Interface</label>
@@ -2014,7 +2240,7 @@ export default function App() {
                     value={ifaceForm.mtu}
                     onChange={e => setIfaceForm({ ...ifaceForm, mtu: e.target.value })}
                     placeholder="1500"
-                    className="w-full glass-input px-3 py-2 rounded-lg bg-slate-950 border border-emerald-500/30 text-white font-mono"
+                    className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-white font-mono"
                   />
                 </div>
                 <div>
@@ -2024,13 +2250,13 @@ export default function App() {
                     value={ifaceForm.mac}
                     onChange={e => setIfaceForm({ ...ifaceForm, mac: e.target.value })}
                     placeholder="00:11:22:33:44:55"
-                    className="w-full glass-input px-3 py-2 rounded-lg bg-slate-950 border border-emerald-500/30 text-white font-mono"
+                    className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-white font-mono"
                   />
                 </div>
               </div>
             </div>
 
-            <div className="p-4 bg-slate-950 border-t border-emerald-500/20 flex items-center justify-end gap-2">
+            <div className="p-4 bg-slate-950 border-t border-slate-800 flex items-center justify-end gap-2">
               <button
                 type="button"
                 onClick={() => setEditingIface(null)}
@@ -2042,7 +2268,7 @@ export default function App() {
                 type="button"
                 onClick={handleSaveInterface}
                 disabled={loading}
-                className="px-5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-bold transition flex items-center gap-1.5 shadow-lg shadow-emerald-950"
+                className="px-5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-bold transition flex items-center gap-1.5 shadow"
               >
                 {loading ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
                 Salvar e Aplicar no Kernel
@@ -2052,11 +2278,11 @@ export default function App() {
         </div>
       )}
 
-      {/* 2. Modal de Nova VLAN 802.1Q */}
+      {/* 2. Modal Nova VLAN */}
       {showVlanModal && (
         <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
-          <form onSubmit={handleCreateVlan} className="bg-slate-900 border border-emerald-500/30 rounded-2xl w-full max-w-md shadow-2xl overflow-hidden">
-            <div className="p-5 border-b border-emerald-500/20 flex items-center justify-between bg-slate-950/60">
+          <form onSubmit={handleCreateVlan} className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-md shadow-2xl overflow-hidden">
+            <div className="p-5 border-b border-slate-800 flex items-center justify-between bg-slate-950">
               <div className="flex items-center gap-2 text-white font-bold text-sm">
                 <Layers className="w-5 h-5 text-purple-400" />
                 Nova VLAN 802.1Q
@@ -2073,7 +2299,7 @@ export default function App() {
                   required
                   value={vlanForm.parent_interface}
                   onChange={e => setVlanForm({ ...vlanForm, parent_interface: e.target.value })}
-                  className="w-full glass-input px-3 py-2 rounded-lg bg-slate-950 border border-emerald-500/30 text-white"
+                  className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-white"
                 >
                   <option value="">Selecione a interface pai...</option>
                   {interfaces.filter(i => !i.is_vlan).map((iface, i) => (
@@ -2092,17 +2318,17 @@ export default function App() {
                     required
                     value={vlanForm.vlan_id}
                     onChange={e => setVlanForm({ ...vlanForm, vlan_id: e.target.value })}
-                    className="w-full glass-input px-3 py-2 rounded-lg bg-slate-950 border border-emerald-500/30 text-white font-mono"
+                    className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-white font-mono"
                   />
                 </div>
                 <div>
-                  <label className="block text-slate-300 mb-1 font-semibold">Nome da Subinterface</label>
+                  <label className="block text-slate-300 mb-1 font-semibold">Nome Subinterface</label>
                   <input
                     type="text"
                     value={vlanForm.name || (vlanForm.parent_interface ? `${vlanForm.parent_interface}.${vlanForm.vlan_id}` : '')}
                     onChange={e => setVlanForm({ ...vlanForm, name: e.target.value })}
                     placeholder="ex.: ens34.10"
-                    className="w-full glass-input px-3 py-2 rounded-lg bg-slate-950 border border-emerald-500/30 text-white font-mono"
+                    className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-white font-mono"
                   />
                 </div>
               </div>
@@ -2114,16 +2340,16 @@ export default function App() {
                   value={vlanForm.ipv4_cidr}
                   onChange={e => setVlanForm({ ...vlanForm, ipv4_cidr: e.target.value })}
                   placeholder="ex.: 192.168.10.1/24"
-                  className="w-full glass-input px-3 py-2 rounded-lg bg-slate-950 border border-emerald-500/30 text-white font-mono"
+                  className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-white font-mono"
                 />
               </div>
             </div>
 
-            <div className="p-4 bg-slate-950 border-t border-emerald-500/20 flex items-center justify-end gap-2">
+            <div className="p-4 bg-slate-950 border-t border-slate-800 flex items-center justify-end gap-2">
               <button type="button" onClick={() => setShowVlanModal(false)} className="px-4 py-2 bg-slate-800 text-slate-300 rounded-lg text-xs font-semibold">
                 Cancelar
               </button>
-              <button type="submit" disabled={loading} className="px-5 py-2 bg-purple-600 hover:bg-purple-500 text-white rounded-lg text-xs font-bold transition shadow-lg shadow-purple-950">
+              <button type="submit" disabled={loading} className="px-5 py-2 bg-purple-600 hover:bg-purple-500 text-white rounded-lg text-xs font-bold transition shadow">
                 Criar VLAN no Kernel
               </button>
             </div>
@@ -2131,11 +2357,11 @@ export default function App() {
         </div>
       )}
 
-      {/* 3. Modal de Nova Bridge */}
+      {/* 3. Modal Nova Bridge */}
       {showBridgeModal && (
         <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
-          <form onSubmit={handleCreateBridge} className="bg-slate-900 border border-emerald-500/30 rounded-2xl w-full max-w-md shadow-2xl overflow-hidden">
-            <div className="p-5 border-b border-emerald-500/20 flex items-center justify-between bg-slate-950/60">
+          <form onSubmit={handleCreateBridge} className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-md shadow-2xl overflow-hidden">
+            <div className="p-5 border-b border-slate-800 flex items-center justify-between bg-slate-950">
               <div className="flex items-center gap-2 text-white font-bold text-sm">
                 <Router className="w-5 h-5 text-indigo-400" />
                 Nova Linux Bridge
@@ -2154,13 +2380,13 @@ export default function App() {
                   value={bridgeForm.name}
                   onChange={e => setBridgeForm({ ...bridgeForm, name: e.target.value })}
                   placeholder="ex.: br0"
-                  className="w-full glass-input px-3 py-2 rounded-lg bg-slate-950 border border-emerald-500/30 text-white font-mono"
+                  className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-white font-mono"
                 />
               </div>
 
               <div>
-                <label className="block text-slate-300 mb-1 font-semibold">Interfaces Membros (Portas Enslaved)</label>
-                <div className="space-y-1.5 max-h-36 overflow-y-auto p-2 bg-slate-950 rounded-lg border border-emerald-500/20">
+                <label className="block text-slate-300 mb-1 font-semibold">Interfaces Membros (Escravas)</label>
+                <div className="space-y-1.5 max-h-36 overflow-y-auto p-2 bg-slate-950 rounded-lg border border-slate-800">
                   {interfaces.filter(i => !i.is_bridge).map((iface, i) => (
                     <label key={i} className="flex items-center gap-2 text-slate-300 cursor-pointer hover:text-white">
                       <input
@@ -2188,7 +2414,7 @@ export default function App() {
                   value={bridgeForm.ipv4_cidr}
                   onChange={e => setBridgeForm({ ...bridgeForm, ipv4_cidr: e.target.value })}
                   placeholder="ex.: 192.168.100.1/24"
-                  className="w-full glass-input px-3 py-2 rounded-lg bg-slate-950 border border-emerald-500/30 text-white font-mono"
+                  className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-white font-mono"
                 />
               </div>
 
@@ -2206,11 +2432,11 @@ export default function App() {
               </div>
             </div>
 
-            <div className="p-4 bg-slate-950 border-t border-emerald-500/20 flex items-center justify-end gap-2">
+            <div className="p-4 bg-slate-950 border-t border-slate-800 flex items-center justify-end gap-2">
               <button type="button" onClick={() => setShowBridgeModal(false)} className="px-4 py-2 bg-slate-800 text-slate-300 rounded-lg text-xs font-semibold">
                 Cancelar
               </button>
-              <button type="submit" disabled={loading} className="px-5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-bold transition shadow-lg shadow-indigo-950">
+              <button type="submit" disabled={loading} className="px-5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-bold transition shadow">
                 Criar Bridge no Kernel
               </button>
             </div>
@@ -2218,11 +2444,11 @@ export default function App() {
         </div>
       )}
 
-      {/* 4. Modal de Novo Bond */}
+      {/* 4. Modal Novo Bond */}
       {showBondModal && (
         <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
-          <form onSubmit={handleCreateBond} className="bg-slate-900 border border-emerald-500/30 rounded-2xl w-full max-w-md shadow-2xl overflow-hidden">
-            <div className="p-5 border-b border-emerald-500/20 flex items-center justify-between bg-slate-950/60">
+          <form onSubmit={handleCreateBond} className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-md shadow-2xl overflow-hidden">
+            <div className="p-5 border-b border-slate-800 flex items-center justify-between bg-slate-950">
               <div className="flex items-center gap-2 text-white font-bold text-sm">
                 <ArrowDownUp className="w-5 h-5 text-cyan-400" />
                 Novo Link Aggregation (Bond)
@@ -2242,7 +2468,7 @@ export default function App() {
                     value={bondForm.name}
                     onChange={e => setBondForm({ ...bondForm, name: e.target.value })}
                     placeholder="ex.: bond0"
-                    className="w-full glass-input px-3 py-2 rounded-lg bg-slate-950 border border-emerald-500/30 text-white font-mono"
+                    className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-white font-mono"
                   />
                 </div>
                 <div>
@@ -2250,10 +2476,10 @@ export default function App() {
                   <select
                     value={bondForm.mode}
                     onChange={e => setBondForm({ ...bondForm, mode: e.target.value })}
-                    className="w-full glass-input px-3 py-2 rounded-lg bg-slate-950 border border-emerald-500/30 text-white"
+                    className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-white"
                   >
                     <option value="802.3ad">802.3ad LACP (Dinâmico)</option>
-                    <option value="active-backup">Active-Backup (Tolerância a Falhas)</option>
+                    <option value="active-backup">Active-Backup</option>
                     <option value="balance-rr">Balance Round-Robin</option>
                     <option value="balance-xor">Balance XOR</option>
                   </select>
@@ -2262,7 +2488,7 @@ export default function App() {
 
               <div>
                 <label className="block text-slate-300 mb-1 font-semibold">Interfaces Escravas (Slaves)</label>
-                <div className="space-y-1.5 max-h-36 overflow-y-auto p-2 bg-slate-950 rounded-lg border border-emerald-500/20">
+                <div className="space-y-1.5 max-h-36 overflow-y-auto p-2 bg-slate-950 rounded-lg border border-slate-800">
                   {interfaces.filter(i => !i.is_bridge && !i.is_vlan).map((iface, i) => (
                     <label key={i} className="flex items-center gap-2 text-slate-300 cursor-pointer hover:text-white">
                       <input
@@ -2290,16 +2516,16 @@ export default function App() {
                   value={bondForm.ipv4_cidr}
                   onChange={e => setBondForm({ ...bondForm, ipv4_cidr: e.target.value })}
                   placeholder="ex.: 192.168.200.1/24"
-                  className="w-full glass-input px-3 py-2 rounded-lg bg-slate-950 border border-emerald-500/30 text-white font-mono"
+                  className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-white font-mono"
                 />
               </div>
             </div>
 
-            <div className="p-4 bg-slate-950 border-t border-emerald-500/20 flex items-center justify-end gap-2">
+            <div className="p-4 bg-slate-950 border-t border-slate-800 flex items-center justify-end gap-2">
               <button type="button" onClick={() => setShowBondModal(false)} className="px-4 py-2 bg-slate-800 text-slate-300 rounded-lg text-xs font-semibold">
                 Cancelar
               </button>
-              <button type="submit" disabled={loading} className="px-5 py-2 bg-cyan-600 hover:bg-cyan-500 text-white rounded-lg text-xs font-bold transition shadow-lg shadow-cyan-950">
+              <button type="submit" disabled={loading} className="px-5 py-2 bg-cyan-600 hover:bg-cyan-500 text-white rounded-lg text-xs font-bold transition shadow">
                 Criar Bond no Kernel
               </button>
             </div>
@@ -2307,13 +2533,13 @@ export default function App() {
         </div>
       )}
 
-      {/* 5. Modal de Nova Rota Estática */}
+      {/* 5. Modal Rota Estática */}
       {showRouteModal && (
         <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
-          <form onSubmit={handleCreateRoute} className="bg-slate-900 border border-emerald-500/30 rounded-2xl w-full max-w-md shadow-2xl overflow-hidden">
-            <div className="p-5 border-b border-emerald-500/20 flex items-center justify-between bg-slate-950/60">
+          <form onSubmit={handleCreateRoute} className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-md shadow-2xl overflow-hidden">
+            <div className="p-5 border-b border-slate-800 flex items-center justify-between bg-slate-950">
               <div className="flex items-center gap-2 text-white font-bold text-sm">
-                <Globe className="w-5 h-5 text-emerald-400" />
+                <Globe className="w-5 h-5 text-sky-400" />
                 Adicionar Rota Estática
               </div>
               <button type="button" onClick={() => setShowRouteModal(false)} className="text-slate-400 hover:text-white">
@@ -2330,7 +2556,7 @@ export default function App() {
                   value={routeForm.destination}
                   onChange={e => setRouteForm({ ...routeForm, destination: e.target.value })}
                   placeholder="ex.: 10.50.0.0/16 ou 172.16.0.0/12"
-                  className="w-full glass-input px-3 py-2 rounded-lg bg-slate-950 border border-emerald-500/30 text-white font-mono"
+                  className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-white font-mono"
                 />
               </div>
 
@@ -2342,7 +2568,7 @@ export default function App() {
                   value={routeForm.gateway}
                   onChange={e => setRouteForm({ ...routeForm, gateway: e.target.value })}
                   placeholder="ex.: 192.168.1.254"
-                  className="w-full glass-input px-3 py-2 rounded-lg bg-slate-950 border border-emerald-500/30 text-white font-mono"
+                  className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-white font-mono"
                 />
               </div>
 
@@ -2352,7 +2578,7 @@ export default function App() {
                   <select
                     value={routeForm.interface}
                     onChange={e => setRouteForm({ ...routeForm, interface: e.target.value })}
-                    className="w-full glass-input px-3 py-2 rounded-lg bg-slate-950 border border-emerald-500/30 text-white"
+                    className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-white"
                   >
                     <option value="">Automática pelo Kernel</option>
                     {interfaces.map((iface, i) => (
@@ -2367,17 +2593,17 @@ export default function App() {
                     value={routeForm.metric}
                     onChange={e => setRouteForm({ ...routeForm, metric: e.target.value })}
                     placeholder="100"
-                    className="w-full glass-input px-3 py-2 rounded-lg bg-slate-950 border border-emerald-500/30 text-white font-mono"
+                    className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-white font-mono"
                   />
                 </div>
               </div>
             </div>
 
-            <div className="p-4 bg-slate-950 border-t border-emerald-500/20 flex items-center justify-end gap-2">
+            <div className="p-4 bg-slate-950 border-t border-slate-800 flex items-center justify-end gap-2">
               <button type="button" onClick={() => setShowRouteModal(false)} className="px-4 py-2 bg-slate-800 text-slate-300 rounded-lg text-xs font-semibold">
                 Cancelar
               </button>
-              <button type="submit" disabled={loading} className="px-5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-bold transition shadow-lg shadow-emerald-950">
+              <button type="submit" disabled={loading} className="px-5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-bold transition shadow">
                 Adicionar Rota
               </button>
             </div>
@@ -2385,13 +2611,13 @@ export default function App() {
         </div>
       )}
 
-      {/* 6. Modal de Nova Reserva Estática DHCP */}
+      {/* 6. Modal Reserva Estática DHCP */}
       {showStaticLeaseModal && (
         <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
-          <form onSubmit={handleCreateStaticLease} className="bg-slate-900 border border-emerald-500/30 rounded-2xl w-full max-w-md shadow-2xl overflow-hidden">
-            <div className="p-5 border-b border-emerald-500/20 flex items-center justify-between bg-slate-950/60">
+          <form onSubmit={handleCreateStaticLease} className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-md shadow-2xl overflow-hidden">
+            <div className="p-5 border-b border-slate-800 flex items-center justify-between bg-slate-950">
               <div className="flex items-center gap-2 text-white font-bold text-sm">
-                <Key className="w-5 h-5 text-emerald-400" />
+                <Key className="w-5 h-5 text-amber-400" />
                 Nova Reserva Estática (IP Fixo por MAC)
               </div>
               <button type="button" onClick={() => setShowStaticLeaseModal(false)} className="text-slate-400 hover:text-white">
@@ -2408,7 +2634,7 @@ export default function App() {
                   value={staticLeaseForm.mac}
                   onChange={e => setStaticLeaseForm({ ...staticLeaseForm, mac: e.target.value })}
                   placeholder="ex.: 00:11:22:33:44:55"
-                  className="w-full glass-input px-3 py-2 rounded-lg bg-slate-950 border border-emerald-500/30 text-white font-mono"
+                  className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-white font-mono"
                 />
               </div>
 
@@ -2420,7 +2646,7 @@ export default function App() {
                   value={staticLeaseForm.ip}
                   onChange={e => setStaticLeaseForm({ ...staticLeaseForm, ip: e.target.value })}
                   placeholder="ex.: 192.168.1.50"
-                  className="w-full glass-input px-3 py-2 rounded-lg bg-slate-950 border border-emerald-500/30 text-white font-mono"
+                  className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-white font-mono"
                 />
               </div>
 
@@ -2432,7 +2658,7 @@ export default function App() {
                   value={staticLeaseForm.hostname}
                   onChange={e => setStaticLeaseForm({ ...staticLeaseForm, hostname: e.target.value })}
                   placeholder="ex.: printer-laser-contabil"
-                  className="w-full glass-input px-3 py-2 rounded-lg bg-slate-950 border border-emerald-500/30 text-white font-mono"
+                  className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-white font-mono"
                 />
               </div>
 
@@ -2443,16 +2669,16 @@ export default function App() {
                   value={staticLeaseForm.description}
                   onChange={e => setStaticLeaseForm({ ...staticLeaseForm, description: e.target.value })}
                   placeholder="ex.: Impressora HP LaserJet 1020"
-                  className="w-full glass-input px-3 py-2 rounded-lg bg-slate-950 border border-emerald-500/30 text-white"
+                  className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-white"
                 />
               </div>
             </div>
 
-            <div className="p-4 bg-slate-950 border-t border-emerald-500/20 flex items-center justify-end gap-2">
+            <div className="p-4 bg-slate-950 border-t border-slate-800 flex items-center justify-end gap-2">
               <button type="button" onClick={() => setShowStaticLeaseModal(false)} className="px-4 py-2 bg-slate-800 text-slate-300 rounded-lg text-xs font-semibold">
                 Cancelar
               </button>
-              <button type="submit" disabled={loading} className="px-5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-bold transition shadow-lg shadow-emerald-950">
+              <button type="submit" disabled={loading} className="px-5 py-2 bg-amber-600 hover:bg-amber-500 text-white rounded-lg text-xs font-bold transition shadow">
                 Salvar Reserva no DHCP
               </button>
             </div>
@@ -2461,9 +2687,34 @@ export default function App() {
       )}
 
       {/* Footer */}
-      <footer className="border-t border-emerald-500/15 px-6 py-4 text-center text-xs text-slate-500 glass-panel">
+      <footer className="border-t border-slate-800/80 px-6 py-4 text-center text-xs text-slate-500 bg-slate-950">
         Astral Network · Enterprise Routing & Security Platform · Licenciado sob termos da SrvCloud
       </footer>
     </div>
+  );
+}
+
+function NavItem({ active, onClick, icon, label, badge }) {
+  return (
+    <button 
+      onClick={onClick}
+      className={`flex items-center justify-between px-3.5 py-2.5 rounded-lg text-xs font-medium transition cursor-pointer w-full text-left ${
+        active 
+          ? 'bg-indigo-600 text-white font-semibold shadow-md shadow-indigo-950/50' 
+          : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
+      }`}
+    >
+      <div className="flex items-center gap-2.5">
+        {icon}
+        <span>{label}</span>
+      </div>
+      {badge !== undefined && (
+        <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-mono ${
+          active ? 'bg-indigo-700 text-white' : 'bg-slate-800 text-slate-400'
+        }`}>
+          {badge}
+        </span>
+      )}
+    </button>
   );
 }
