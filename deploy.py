@@ -49,16 +49,45 @@ def main():
 
     os.chdir(APP_DIR)
 
-    # 0. Correção de permissões residuais de execuções anteriores com root
+    # 0. Instalação e verificação de dependências do sistema operacional (Fedora)
+    log("Verificando e instalando pacotes essenciais de rede e DHCP (dnf)...", BLUE)
+    packages = [
+        "dhcp-server",
+        "iproute",
+        "bridge-utils",
+        "iptables",
+        "nftables",
+        "ethtool",
+        "NetworkManager",
+        "wireguard-tools",
+        "pam-devel",
+        "curl",
+        "procps-ng",
+    ]
+    pkg_res = run_sudo(f"dnf install -y {' '.join(packages)}")
+    if pkg_res.returncode == 0:
+        log("Pacotes de sistema garantidos com sucesso.", GREEN)
+    else:
+        log(f"Aviso ao instalar pacotes via dnf (prosseguindo): {pkg_res.stderr or pkg_res.stdout}", YELLOW)
+
+    # Garantir estrutura do daemon DHCP (isc-dhcp-server / dhcpd)
+    run_sudo("mkdir -p /etc/dhcp /var/lib/dhcpd")
+    run_sudo("touch /var/lib/dhcpd/dhcpd.leases")
+    run_sudo("chmod 644 /var/lib/dhcpd/dhcpd.leases 2>/dev/null || true")
+    run_sudo("touch /etc/dhcp/dhcpd.conf")
+
+    # 0.1 Correção de permissões residuais de execuções anteriores com root
     log("Ajustando permissões de arquivos no diretório do projeto...", BLUE)
     if os.geteuid() != 0:
         run_sudo(f"chown -R {os.getuid()}:{os.getgid()} {APP_DIR}")
+        run_sudo(f"chmod -R 777 {FRONTEND_DIR}")
         run_sudo(f"rm -f {APP_DIR}/target/.cargo-build-lock {APP_DIR}/target/release/.cargo-build-lock")
         run_sudo(f"rm -rf {FRONTEND_DIR}/node_modules/.vite-temp")
     else:
         if "SUDO_USER" in os.environ:
             s_user = os.environ["SUDO_USER"]
             subprocess.run(f"chown -R {s_user}:{s_user} {APP_DIR}", shell=True)
+        subprocess.run(f"chmod -R 777 {FRONTEND_DIR}", shell=True)
         subprocess.run(f"rm -f {APP_DIR}/target/.cargo-build-lock {APP_DIR}/target/release/.cargo-build-lock", shell=True)
         subprocess.run(f"rm -rf {FRONTEND_DIR}/node_modules/.vite-temp", shell=True)
 
@@ -120,6 +149,8 @@ def main():
     # Copiar estáticos do frontend
     if os.path.exists(STATIC_BUILD_DIR):
         log(f"Copiando arquivos da UI para {TARGET_STATIC_DIR}...", BLUE)
+        run_sudo(f"rm -rf {TARGET_STATIC_DIR}/*")
+        run_sudo(f"mkdir -p {TARGET_STATIC_DIR}")
         run_sudo(f"cp -rf {STATIC_BUILD_DIR}/* {TARGET_STATIC_DIR}/")
         run_sudo(f"chmod -R 755 {TARGET_STATIC_DIR}")
 

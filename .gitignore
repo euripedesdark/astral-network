@@ -5,7 +5,6 @@ target/
 
 # Dependencies
 node_modules/
-dist/
 
 # Credentials and sensitive environment files
 *.env
