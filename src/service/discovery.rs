@@ -2,7 +2,6 @@ use crate::domain::inventory::InterfaceInventory;
 use std::fs;
 use std::path::Path;
 use std::process::Command;
-use tracing::info;
 
 pub struct NetworkDiscoveryService;
 

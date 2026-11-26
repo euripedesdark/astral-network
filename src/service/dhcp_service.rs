@@ -4,7 +4,7 @@ use crate::domain::{
 use crate::service::command_executor::CommandExecutor;
 use std::collections::HashMap;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::Arc;
 use tracing::{error, info, warn};
 

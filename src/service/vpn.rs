@@ -1,8 +1,6 @@
 use crate::domain::inventory::{CloudflareTunnelConfig, WireguardConfig, WireguardPeer};
-use std::fs;
 use std::path::Path;
 use std::process::Command;
-use tracing::info;
 
 pub struct VpnEngine;
 

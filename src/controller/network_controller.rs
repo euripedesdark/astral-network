@@ -1,4 +1,4 @@
-use crate::domain::inventory::{AdDnsIntegrationConfig, DeclarativeNetworkState, InterfaceInventory};
+use crate::domain::inventory::{AdDnsIntegrationConfig, DeclarativeNetworkState};
 use crate::domain::{NetworkAddressing, NetworkError};
 use crate::service::diagnostics::DiagnosticsEngine;
 use crate::service::discovery::NetworkDiscoveryService;
@@ -12,7 +12,7 @@ use axum::{
     response::{IntoResponse, Response},
     Json,
 };
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use serde_json::json;
 use std::sync::Arc;
 use uuid::Uuid;

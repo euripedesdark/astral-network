@@ -1,3 +1,4 @@
+#![allow(unused_imports)]
 pub mod addressing;
 pub mod dhcp;
 pub mod error;
