@@ -49,6 +49,19 @@ def main():
 
     os.chdir(APP_DIR)
 
+    # 0. Correção de permissões residuais de execuções anteriores com root
+    log("Ajustando permissões de arquivos no diretório do projeto...", BLUE)
+    if os.geteuid() != 0:
+        run_sudo(f"chown -R {os.getuid()}:{os.getgid()} {APP_DIR}")
+        run_sudo(f"rm -f {APP_DIR}/target/.cargo-build-lock {APP_DIR}/target/release/.cargo-build-lock")
+        run_sudo(f"rm -rf {FRONTEND_DIR}/node_modules/.vite-temp")
+    else:
+        if "SUDO_USER" in os.environ:
+            s_user = os.environ["SUDO_USER"]
+            subprocess.run(f"chown -R {s_user}:{s_user} {APP_DIR}", shell=True)
+        subprocess.run(f"rm -f {APP_DIR}/target/.cargo-build-lock {APP_DIR}/target/release/.cargo-build-lock", shell=True)
+        subprocess.run(f"rm -rf {FRONTEND_DIR}/node_modules/.vite-temp", shell=True)
+
     # 1. Compilação do Frontend React/Vite
     if os.path.exists(FRONTEND_DIR):
         log("Compilando Frontend React/Vite...", BLUE)
