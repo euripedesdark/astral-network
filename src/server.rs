@@ -1,8 +1,12 @@
 use crate::config::NetworkConfig;
 use crate::controller::network_controller::{ConfirmCommitRequest, NewPeerRequest, PingRequest, RollbackRequest};
 use crate::controller::NetworkAddressingController;
-use crate::domain::inventory::{AdDnsIntegrationConfig, DeclarativeNetworkState};
+use crate::domain::inventory::{AdDnsIntegrationConfig, DeclarativeNetworkState, DhcpScopeConfig, StaticLease};
 use crate::domain::NetworkAddressing;
+use crate::service::l2l3_service::{
+    ConfigureInterfaceRequest, CreateBondRequest, CreateBridgeRequest, CreateRouteRequest,
+    CreateVlanRequest, DeleteRouteRequest, DeleteTargetRequest,
+};
 use axum::{
     extract::{Json, State},
     http::{header, StatusCode, Uri},
@@ -194,6 +198,103 @@ impl NetworkServer {
                 "/api/v1/network/health",
                 get(|State(c): State<NetworkContainer>| async move {
                     c.controller.handle_health().await
+                }),
+            )
+            // 11. Dynamic L2 / L3 Network Configuration Endpoints
+            .route(
+                "/api/v1/network/interface/configure",
+                post(|State(c): State<NetworkContainer>, Json(body): Json<ConfigureInterfaceRequest>| async move {
+                    c.controller.handle_interface_configure(body).await
+                }),
+            )
+            .route(
+                "/api/v1/network/vlans",
+                get(|State(c): State<NetworkContainer>| async move {
+                    c.controller.handle_vlans_list().await
+                }),
+            )
+            .route(
+                "/api/v1/network/vlan/create",
+                post(|State(c): State<NetworkContainer>, Json(body): Json<CreateVlanRequest>| async move {
+                    c.controller.handle_vlan_create(body).await
+                }),
+            )
+            .route(
+                "/api/v1/network/vlan/delete",
+                post(|State(c): State<NetworkContainer>, Json(body): Json<DeleteTargetRequest>| async move {
+                    c.controller.handle_vlan_delete(body).await
+                }),
+            )
+            .route(
+                "/api/v1/network/bridges",
+                get(|State(c): State<NetworkContainer>| async move {
+                    c.controller.handle_bridges_list().await
+                }),
+            )
+            .route(
+                "/api/v1/network/bridge/create",
+                post(|State(c): State<NetworkContainer>, Json(body): Json<CreateBridgeRequest>| async move {
+                    c.controller.handle_bridge_create(body).await
+                }),
+            )
+            .route(
+                "/api/v1/network/bridge/delete",
+                post(|State(c): State<NetworkContainer>, Json(body): Json<DeleteTargetRequest>| async move {
+                    c.controller.handle_bridge_delete(body).await
+                }),
+            )
+            .route(
+                "/api/v1/network/bonds",
+                get(|State(c): State<NetworkContainer>| async move {
+                    c.controller.handle_bonds_list().await
+                }),
+            )
+            .route(
+                "/api/v1/network/bond/create",
+                post(|State(c): State<NetworkContainer>, Json(body): Json<CreateBondRequest>| async move {
+                    c.controller.handle_bond_create(body).await
+                }),
+            )
+            .route(
+                "/api/v1/network/bond/delete",
+                post(|State(c): State<NetworkContainer>, Json(body): Json<DeleteTargetRequest>| async move {
+                    c.controller.handle_bond_delete(body).await
+                }),
+            )
+            .route(
+                "/api/v1/network/routes",
+                get(|State(c): State<NetworkContainer>| async move {
+                    c.controller.handle_routes_list().await
+                }),
+            )
+            .route(
+                "/api/v1/network/routes/create",
+                post(|State(c): State<NetworkContainer>, Json(body): Json<CreateRouteRequest>| async move {
+                    c.controller.handle_route_create(body).await
+                }),
+            )
+            .route(
+                "/api/v1/network/routes/delete",
+                post(|State(c): State<NetworkContainer>, Json(body): Json<DeleteRouteRequest>| async move {
+                    c.controller.handle_route_delete(body).await
+                }),
+            )
+            .route(
+                "/api/v1/network/dhcp/scope",
+                post(|State(c): State<NetworkContainer>, Json(body): Json<DhcpScopeConfig>| async move {
+                    c.controller.handle_dhcp_scope_save(body).await
+                }),
+            )
+            .route(
+                "/api/v1/network/dhcp/static-lease",
+                post(|State(c): State<NetworkContainer>, Json(body): Json<StaticLease>| async move {
+                    c.controller.handle_dhcp_static_lease_add(body).await
+                }),
+            )
+            .route(
+                "/api/v1/network/dhcp/static-lease/delete",
+                post(|State(c): State<NetworkContainer>, Json(body): Json<DeleteTargetRequest>| async move {
+                    c.controller.handle_dhcp_static_lease_delete(body).await
                 }),
             )
             .fallback(handle_static_web)

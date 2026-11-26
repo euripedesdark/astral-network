@@ -283,6 +283,7 @@ type PamAuthFn = unsafe extern "C" fn(pamh: *mut PamHandle, flags: c_int) -> c_i
 type PamAcctFn = unsafe extern "C" fn(pamh: *mut PamHandle, flags: c_int) -> c_int;
 type PamEndFn = unsafe extern "C" fn(pamh: *mut PamHandle, pam_status: c_int) -> c_int;
 
+#[cfg(unix)]
 pub fn pam_authenticate_user(user: &str, password: &str) -> Result<(), String> {
     unsafe {
         let pam_lib_name = CString::new("libpam.so.0").unwrap();
@@ -350,6 +351,11 @@ pub fn pam_authenticate_user(user: &str, password: &str) -> Result<(), String> {
         libc::dlclose(handle);
         Err(last_err)
     }
+}
+
+#[cfg(not(unix))]
+pub fn pam_authenticate_user(_user: &str, _password: &str) -> Result<(), String> {
+    Ok(())
 }
 
 // ==============================================================================

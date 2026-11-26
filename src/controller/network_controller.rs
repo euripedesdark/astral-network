@@ -1,9 +1,13 @@
-use crate::domain::inventory::{AdDnsIntegrationConfig, DeclarativeNetworkState};
+use crate::domain::inventory::{AdDnsIntegrationConfig, DeclarativeNetworkState, DhcpScopeConfig, StaticLease};
 use crate::domain::{NetworkAddressing, NetworkError};
 use crate::service::diagnostics::DiagnosticsEngine;
 use crate::service::discovery::NetworkDiscoveryService;
 use crate::service::dns_integration::DnsIntegrationEngine;
 use crate::service::firewall::FirewallEngine;
+use crate::service::l2l3_service::{
+    ConfigureInterfaceRequest, CreateBondRequest, CreateBridgeRequest, CreateRouteRequest,
+    CreateVlanRequest, DeleteRouteRequest, DeleteTargetRequest, L2L3Service,
+};
 use crate::service::rollback_manager::RollbackManager;
 use crate::service::vpn::VpnEngine;
 use crate::service::NetworkAddressingService;
@@ -340,5 +344,125 @@ impl NetworkAddressingController {
             ]
         }))
         .into_response()
+    }
+
+    // ==========================================
+    // L2 / L3 Dynamic Handlers (Kernel Execution)
+    // ==========================================
+
+    pub async fn handle_interface_configure(&self, body: ConfigureInterfaceRequest) -> Response {
+        let l2l3 = L2L3Service::default_service();
+        match l2l3.configure_interface(&body) {
+            Ok(msg) => Json(json!({ "status": "SUCCESS", "message": msg })).into_response(),
+            Err(e) => (StatusCode::BAD_REQUEST, Json(json!({ "status": "ERROR", "error": e }))).into_response(),
+        }
+    }
+
+    pub async fn handle_vlans_list(&self) -> Response {
+        let l2l3 = L2L3Service::default_service();
+        Json(l2l3.list_vlans()).into_response()
+    }
+
+    pub async fn handle_vlan_create(&self, body: CreateVlanRequest) -> Response {
+        let l2l3 = L2L3Service::default_service();
+        match l2l3.create_vlan(&body) {
+            Ok(msg) => Json(json!({ "status": "SUCCESS", "message": msg })).into_response(),
+            Err(e) => (StatusCode::BAD_REQUEST, Json(json!({ "status": "ERROR", "error": e }))).into_response(),
+        }
+    }
+
+    pub async fn handle_vlan_delete(&self, body: DeleteTargetRequest) -> Response {
+        let l2l3 = L2L3Service::default_service();
+        match l2l3.delete_vlan(&body.name) {
+            Ok(msg) => Json(json!({ "status": "SUCCESS", "message": msg })).into_response(),
+            Err(e) => (StatusCode::BAD_REQUEST, Json(json!({ "status": "ERROR", "error": e }))).into_response(),
+        }
+    }
+
+    pub async fn handle_bridges_list(&self) -> Response {
+        let l2l3 = L2L3Service::default_service();
+        Json(l2l3.list_bridges()).into_response()
+    }
+
+    pub async fn handle_bridge_create(&self, body: CreateBridgeRequest) -> Response {
+        let l2l3 = L2L3Service::default_service();
+        match l2l3.create_bridge(&body) {
+            Ok(msg) => Json(json!({ "status": "SUCCESS", "message": msg })).into_response(),
+            Err(e) => (StatusCode::BAD_REQUEST, Json(json!({ "status": "ERROR", "error": e }))).into_response(),
+        }
+    }
+
+    pub async fn handle_bridge_delete(&self, body: DeleteTargetRequest) -> Response {
+        let l2l3 = L2L3Service::default_service();
+        match l2l3.delete_bridge(&body.name) {
+            Ok(msg) => Json(json!({ "status": "SUCCESS", "message": msg })).into_response(),
+            Err(e) => (StatusCode::BAD_REQUEST, Json(json!({ "status": "ERROR", "error": e }))).into_response(),
+        }
+    }
+
+    pub async fn handle_bonds_list(&self) -> Response {
+        let l2l3 = L2L3Service::default_service();
+        Json(l2l3.list_bonds()).into_response()
+    }
+
+    pub async fn handle_bond_create(&self, body: CreateBondRequest) -> Response {
+        let l2l3 = L2L3Service::default_service();
+        match l2l3.create_bond(&body) {
+            Ok(msg) => Json(json!({ "status": "SUCCESS", "message": msg })).into_response(),
+            Err(e) => (StatusCode::BAD_REQUEST, Json(json!({ "status": "ERROR", "error": e }))).into_response(),
+        }
+    }
+
+    pub async fn handle_bond_delete(&self, body: DeleteTargetRequest) -> Response {
+        let l2l3 = L2L3Service::default_service();
+        match l2l3.delete_bond(&body.name) {
+            Ok(msg) => Json(json!({ "status": "SUCCESS", "message": msg })).into_response(),
+            Err(e) => (StatusCode::BAD_REQUEST, Json(json!({ "status": "ERROR", "error": e }))).into_response(),
+        }
+    }
+
+    pub async fn handle_routes_list(&self) -> Response {
+        let l2l3 = L2L3Service::default_service();
+        Json(l2l3.list_routes()).into_response()
+    }
+
+    pub async fn handle_route_create(&self, body: CreateRouteRequest) -> Response {
+        let l2l3 = L2L3Service::default_service();
+        match l2l3.create_route(&body) {
+            Ok(msg) => Json(json!({ "status": "SUCCESS", "message": msg })).into_response(),
+            Err(e) => (StatusCode::BAD_REQUEST, Json(json!({ "status": "ERROR", "error": e }))).into_response(),
+        }
+    }
+
+    pub async fn handle_route_delete(&self, body: DeleteRouteRequest) -> Response {
+        let l2l3 = L2L3Service::default_service();
+        match l2l3.delete_route(&body.destination) {
+            Ok(msg) => Json(json!({ "status": "SUCCESS", "message": msg })).into_response(),
+            Err(e) => (StatusCode::BAD_REQUEST, Json(json!({ "status": "ERROR", "error": e }))).into_response(),
+        }
+    }
+
+    pub async fn handle_dhcp_scope_save(&self, body: DhcpScopeConfig) -> Response {
+        let l2l3 = L2L3Service::default_service();
+        match l2l3.save_dhcp_scope(&body) {
+            Ok(msg) => Json(json!({ "status": "SUCCESS", "message": msg })).into_response(),
+            Err(e) => (StatusCode::BAD_REQUEST, Json(json!({ "status": "ERROR", "error": e }))).into_response(),
+        }
+    }
+
+    pub async fn handle_dhcp_static_lease_add(&self, body: StaticLease) -> Response {
+        let l2l3 = L2L3Service::default_service();
+        match l2l3.add_static_lease(&body) {
+            Ok(msg) => Json(json!({ "status": "SUCCESS", "message": msg })).into_response(),
+            Err(e) => (StatusCode::BAD_REQUEST, Json(json!({ "status": "ERROR", "error": e }))).into_response(),
+        }
+    }
+
+    pub async fn handle_dhcp_static_lease_delete(&self, body: DeleteTargetRequest) -> Response {
+        let l2l3 = L2L3Service::default_service();
+        match l2l3.delete_static_lease(&body.name) {
+            Ok(msg) => Json(json!({ "status": "SUCCESS", "message": msg })).into_response(),
+            Err(e) => (StatusCode::BAD_REQUEST, Json(json!({ "status": "ERROR", "error": e }))).into_response(),
+        }
     }
 }

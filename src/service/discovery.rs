@@ -140,7 +140,7 @@ impl NetworkDiscoveryService {
     }
 
     /// Read IPv4 and IPv6 addresses assigned to an interface via `ip -j addr`
-    fn read_interface_ips(iface: &str) -> (Vec<String>, Vec<String>) {
+    pub fn read_interface_ips(iface: &str) -> (Vec<String>, Vec<String>) {
         let mut ipv4 = Vec::new();
         let mut ipv6 = Vec::new();
 
