@@ -148,11 +148,12 @@ def main():
 
     # Copiar estáticos do frontend
     if os.path.exists(STATIC_BUILD_DIR):
-        log(f"Copiando arquivos da UI para {TARGET_STATIC_DIR}...", BLUE)
-        run_sudo(f"rm -rf {TARGET_STATIC_DIR}/*")
-        run_sudo(f"mkdir -p {TARGET_STATIC_DIR}")
+        log(f"Copiando arquivos da UI para {TARGET_STATIC_DIR} e {GLOBAL_DIR}/web/dist...", BLUE)
+        run_sudo(f"rm -rf {TARGET_STATIC_DIR}/* {GLOBAL_DIR}/web/dist/*")
+        run_sudo(f"mkdir -p {TARGET_STATIC_DIR} {GLOBAL_DIR}/web/dist")
         run_sudo(f"cp -rf {STATIC_BUILD_DIR}/* {TARGET_STATIC_DIR}/")
-        run_sudo(f"chmod -R 755 {TARGET_STATIC_DIR}")
+        run_sudo(f"cp -rf {STATIC_BUILD_DIR}/* {GLOBAL_DIR}/web/dist/")
+        run_sudo(f"chmod -R 755 {TARGET_STATIC_DIR} {GLOBAL_DIR}/web/dist")
 
     log(f"Binário e assets instalados em {GLOBAL_DIR} com sucesso.", GREEN)
 

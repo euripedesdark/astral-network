@@ -321,7 +321,7 @@ impl NetworkServer {
 
 async fn handle_static_web(uri: Uri) -> Response {
     let path = uri.path().trim_start_matches('/');
-    let dist_dirs = ["./web/dist", "/opt/astral-network/web/dist", "./dist"];
+    let dist_dirs = ["/opt/astral-network/dist", "./web/dist", "/opt/astral-network/web/dist", "./dist"];
 
     for base in &dist_dirs {
         let file_path = Path::new(base).join(path);
@@ -341,7 +341,10 @@ async fn handle_static_web(uri: Uri) -> Response {
 
                 return (
                     StatusCode::OK,
-                    [(header::CONTENT_TYPE, mime)],
+                    [
+                        (header::CONTENT_TYPE, mime),
+                        (header::CACHE_CONTROL, if path.ends_with(".html") { "no-cache, no-store, must-revalidate" } else { "public, max-age=31536000, immutable" }),
+                    ],
                     content,
                 ).into_response();
             }
@@ -352,7 +355,18 @@ async fn handle_static_web(uri: Uri) -> Response {
     for base in &dist_dirs {
         let index_file = Path::new(base).join("index.html");
         if let Ok(content) = tokio::fs::read_to_string(&index_file).await {
-            return Html(content).into_response();
+            return (
+                StatusCode::OK,
+                [
+                    (header::CONTENT_TYPE, "text/html; charset=utf-8"),
+                    (header::CACHE_CONTROL, "no-cache, no-store, must-revalidate, max-age=0"),
+                    (header::PRAGMA, "no-cache"),
+                    (header::EXPIRES, "0"),
+                ],
+                content,
+            ).into_response();
+        }
+    }
         }
     }
 
