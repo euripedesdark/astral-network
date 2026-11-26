@@ -157,20 +157,21 @@ impl BootstrapWizard {
 }
 
 fn open_firewall_ports(ports: &[u16]) {
-    // Try firewalld
+    // Pure iptables (idempotent: only inserts if not already present)
     for &p in ports {
-        let _ = Command::new("firewall-cmd")
-            .args(["--add-port", &format!("{}/tcp", p), "--permanent"])
-            .output();
-    }
-    let _ = Command::new("firewall-cmd").arg("--reload").output();
+        let exists = Command::new("iptables")
+            .args(["-C", "INPUT", "-p", "tcp", "--dport", &p.to_string(), "-j", "ACCEPT"])
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false);
 
-    // Fallback iptables
-    for &p in ports {
-        let _ = Command::new("iptables")
-            .args(["-I", "INPUT", "-p", "tcp", "--dport", &p.to_string(), "-j", "ACCEPT"])
-            .output();
+        if !exists {
+            let _ = Command::new("iptables")
+                .args(["-I", "INPUT", "-p", "tcp", "--dport", &p.to_string(), "-j", "ACCEPT"])
+                .output();
+        }
     }
+    let _ = Command::new("sh").args(["-c", "iptables-save > /etc/sysconfig/iptables 2>/dev/null || true"]).output();
 }
 
 fn atty_check() -> bool {

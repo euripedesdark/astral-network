@@ -218,16 +218,11 @@ WantedBy=multi-user.target
     run_cmd(f"systemctl restart {SERVICE_NAME}")
     log_success(f"ServiÃ§o {SERVICE_NAME} habilitado e reiniciado.")
 
-    # 6. LiberaÃ§Ã£o Firewall
-    log_step(6, total_steps, f"Liberando Porta {args.port} no Firewall")
-    # Iptables
-    run_cmd(f"iptables -I INPUT -p tcp --dport {args.port} -j ACCEPT", check=False)
-    # Firewalld se ativo
-    fw_proc = run_cmd("systemctl is-active firewalld", check=False, capture=True)
-    if "active" in fw_proc.stdout:
-        run_cmd(f"firewall-cmd --add-port={args.port}/tcp --permanent", check=False)
-        run_cmd("firewall-cmd --reload", check=False)
-    log_success(f"Porta {args.port} liberada no firewall do host.")
+    # 6. LiberaÃ§Ã£o Firewall (iptables nativo)
+    log_step(6, total_steps, f"Liberando Porta {args.port} no Firewall (iptables)")
+    run_cmd(f"iptables -C INPUT -p tcp --dport {args.port} -j ACCEPT 2>/dev/null || iptables -I INPUT -p tcp --dport {args.port} -j ACCEPT", check=False)
+    run_cmd("iptables-save > /etc/sysconfig/iptables 2>/dev/null || iptables-save > /etc/iptables/rules.v4 2>/dev/null || true", check=False)
+    log_success(f"Porta {args.port} liberada no firewall do host (iptables).")
 
     # 7. Verificação de Saúde
     log_step(7, total_steps, "Validando SaÃºde e Conectividade do ServiÃ§o")
