@@ -46,9 +46,31 @@ export default function App() {
   const [interfaces, setInterfaces] = useState([]);
   const [linkHealth, setLinkHealth] = useState(null);
   const [activeLeases, setActiveLeases] = useState([]);
+  const [dhcpStatus, setDhcpStatus] = useState(null);
   const [wireguard, setWireguard] = useState(null);
   const [cloudflare, setCloudflare] = useState(null);
   const [toast, setToast] = useState(null);
+
+  // Authentication State (SSO / PAM / Samba AD)
+  const [user, setUser] = useState(null);
+  const [authChecking, setAuthChecking] = useState(true);
+  const [loginForm, setLoginForm] = useState({ username: '', password: '', provider: 'ad' });
+  const [loginBusy, setLoginBusy] = useState(false);
+  const [loginError, setLoginError] = useState('');
+
+  // DHCP Scope Form State
+  const [scopeForm, setScopeForm] = useState({
+    iface: '',
+    subnet: '192.168.1.0/24',
+    start: '192.168.1.100',
+    end: '192.168.1.200',
+    gateway: '192.168.1.1',
+    dns: '192.168.1.1, 8.8.8.8',
+    lease_time: '43200',
+    enabled: true,
+  });
+  const [staticLeases, setStaticLeases] = useState([]);
+  const [newStaticLease, setNewStaticLease] = useState({ mac: '', ip: '', hostname: '', description: '' });
 
   // Auto-Rollback State
   const [pendingCommitToken, setPendingCommitToken] = useState(null);
@@ -76,6 +98,65 @@ export default function App() {
   const showToast = (message, type = 'info') => {
     setToast({ message, type });
     setTimeout(() => setToast(null), 4000);
+  };
+
+  const fetchMe = async () => {
+    try {
+      const res = await fetch('/api/v1/auth/me');
+      if (res.ok) {
+        const data = await res.json();
+        setUser(data);
+      } else {
+        setUser(null);
+      }
+    } catch {
+      setUser(null);
+    } finally {
+      setAuthChecking(false);
+    }
+  };
+
+  const handleLogin = async (e) => {
+    e?.preventDefault();
+    if (loginBusy) return;
+    setLoginBusy(true);
+    setLoginError('');
+    try {
+      const res = await fetch('/api/v1/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(loginForm),
+      });
+      const data = await res.json();
+      if (res.ok && data.token) {
+        document.cookie = `ASTRAL_SESSION=${encodeURIComponent(data.token)}; path=/; max-age=86400`;
+        document.cookie = `astral_token=${encodeURIComponent(data.token)}; path=/; max-age=86400`;
+        document.cookie = `sso_token=${encodeURIComponent(data.token)}; path=/; max-age=86400`;
+        try { localStorage.setItem('astral_token', data.token); } catch {}
+        setUser(data.user || { username: loginForm.username, role: 'admin' });
+        showToast(`Bem-vindo, ${loginForm.username}!`, 'success');
+        fetchInventory();
+        fetchHealth();
+        fetchVpnAndDhcp();
+      } else {
+        setLoginError(data.message || data.error || 'Credenciais inválidas ou acesso negado.');
+      }
+    } catch (err) {
+      setLoginError(err.message || 'Falha de comunicação com o servidor.');
+    } finally {
+      setLoginBusy(false);
+    }
+  };
+
+  const handleLogout = async () => {
+    try {
+      await fetch('/api/v1/auth/logout', { method: 'POST' });
+    } catch {}
+    document.cookie = 'ASTRAL_SESSION=; path=/; max-age=0';
+    document.cookie = 'astral_token=; path=/; max-age=0';
+    document.cookie = 'sso_token=; path=/; max-age=0';
+    try { localStorage.removeItem('astral_token'); } catch {}
+    setUser(null);
   };
 
   const fetchInventory = async () => {
@@ -107,20 +188,23 @@ export default function App() {
 
   const fetchVpnAndDhcp = async () => {
     try {
-      const [wgRes, cfRes, leaseRes] = await Promise.all([
+      const [wgRes, cfRes, leaseRes, statusRes] = await Promise.all([
         fetch('/api/v1/network/vpn/wireguard'),
         fetch('/api/v1/network/cloudflare'),
         fetch('/api/v1/network/dhcp/leases'),
+        fetch('/api/v1/network/dhcp/status'),
       ]);
       if (wgRes.ok) setWireguard(await wgRes.json());
       if (cfRes.ok) setCloudflare(await cfRes.json());
       if (leaseRes.ok) setActiveLeases(await leaseRes.json());
+      if (statusRes.ok) setDhcpStatus(await statusRes.json());
     } catch (e) {
       console.error(e);
     }
   };
 
   useEffect(() => {
+    fetchMe();
     fetchInventory();
     fetchHealth();
     fetchVpnAndDhcp();
@@ -245,6 +329,85 @@ export default function App() {
 
   const activeIfacesCount = interfaces.filter(i => i.state === 'UP').length;
 
+  if (!user && !authChecking) {
+    return (
+      <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-4 relative overflow-hidden font-sans">
+        <div className="absolute inset-0 bg-gradient-to-br from-emerald-950/20 via-slate-950 to-emerald-900/10 pointer-events-none" />
+        <div className="w-full max-w-md glass-panel p-8 rounded-2xl border border-emerald-500/30 shadow-2xl relative z-10 space-y-6">
+          <div className="text-center space-y-2">
+            <div className="w-16 h-16 mx-auto rounded-2xl bg-gradient-to-br from-emerald-500/30 to-emerald-900/60 border border-emerald-400/40 flex items-center justify-center shadow-lg shadow-emerald-500/20">
+              <Network className="w-8 h-8 text-emerald-400" />
+            </div>
+            <h1 className="text-2xl font-bold tracking-tight text-white">
+              ASTRAL <span className="text-emerald-400">NETWORK</span>
+            </h1>
+            <p className="text-xs text-slate-400">
+              Controle L2/L3, Roteamento, DHCP & Integração Active Directory
+            </p>
+          </div>
+
+          <form onSubmit={handleLogin} className="space-y-4">
+            {loginError && (
+              <div className="bg-rose-950/80 border border-rose-800 p-3 rounded-lg text-rose-200 text-xs font-mono">
+                {loginError}
+              </div>
+            )}
+
+            <div>
+              <label className="block text-xs font-medium text-slate-300 mb-1">Provedor de Autenticação</label>
+              <select
+                value={loginForm.provider}
+                onChange={e => setLoginForm({ ...loginForm, provider: e.target.value })}
+                className="w-full glass-input px-3 py-2 rounded-lg text-xs bg-slate-900 text-slate-200 border border-emerald-500/30"
+              >
+                <option value="ad">Samba Active Directory / SSO (Kerberos)</option>
+                <option value="pam">Linux Local PAM (root / sudo / wheel)</option>
+                <option value="local">Credencial Local Astral</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-xs font-medium text-slate-300 mb-1">Usuário / Login</label>
+              <input
+                type="text"
+                required
+                value={loginForm.username}
+                onChange={e => setLoginForm({ ...loginForm, username: e.target.value })}
+                placeholder="ex.: Administrator ou root"
+                className="w-full glass-input px-3 py-2 rounded-lg text-xs bg-slate-900 text-white border border-emerald-500/30 focus:border-emerald-400"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-medium text-slate-300 mb-1">Senha</label>
+              <input
+                type="password"
+                required
+                value={loginForm.password}
+                onChange={e => setLoginForm({ ...loginForm, password: e.target.value })}
+                placeholder="••••••••••••"
+                className="w-full glass-input px-3 py-2 rounded-lg text-xs bg-slate-900 text-white border border-emerald-500/30 focus:border-emerald-400"
+              />
+            </div>
+
+            <button
+              type="submit"
+              disabled={loginBusy}
+              className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-lg text-xs transition shadow-lg shadow-emerald-950 flex items-center justify-center gap-2"
+            >
+              {loginBusy ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Lock className="w-4 h-4" />}
+              {loginBusy ? 'Autenticando...' : 'Acessar Console de Rede'}
+            </button>
+          </form>
+
+          <div className="pt-4 border-t border-emerald-500/15 text-center text-[11px] text-slate-500">
+            Sessão única compatível com Astral AD-DNS e Internet Security
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-emerald-500 selection:text-white">
       {/* Toast Notification */}
@@ -348,6 +511,23 @@ export default function App() {
             >
               <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
             </button>
+
+            {user && (
+              <div className="glass-card px-3 py-1.5 rounded-lg flex items-center gap-2 border border-emerald-500/30">
+                <ShieldCheck className="w-4 h-4 text-emerald-400" />
+                <div>
+                  <span className="text-slate-400 text-[10px] block">{user.role || 'Operador'}</span>
+                  <span className="font-semibold text-emerald-300">{user.username}</span>
+                </div>
+                <button
+                  onClick={handleLogout}
+                  className="ml-1 p-1 hover:bg-rose-950/60 rounded text-slate-400 hover:text-rose-300 transition"
+                  title="Sair / Encerrar Sessão"
+                >
+                  <Lock className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            )}
           </div>
         </div>
 
@@ -717,14 +897,40 @@ export default function App() {
         {/* TAB 4: DHCP & ASTRAL AD-DNS INTEGRATION */}
         {activeTab === 'dhcp_ad' && (
           <div className="space-y-6">
-            <div>
-              <h2 className="text-base font-bold text-white flex items-center gap-2">
-                <Server className="w-5 h-5 text-emerald-400" />
-                Servidor DHCP & Integração Astral AD-DNS
-              </h2>
-              <p className="text-xs text-slate-400">
-                Distribuição de IPs na LAN com encaminhamento condicional direto para o Active Directory Domain Controller (sem split-brain).
-              </p>
+            <div className="flex flex-wrap items-center justify-between gap-4">
+              <div>
+                <h2 className="text-base font-bold text-white flex items-center gap-2">
+                  <Server className="w-5 h-5 text-emerald-400" />
+                  Servidor DHCP & Integração Astral AD-DNS
+                </h2>
+                <p className="text-xs text-slate-400">
+                  Gerenciamento de escopos, concessões automáticas na LAN e encaminhamento condicional para Active Directory Domain Controller.
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className={`px-2.5 py-1 rounded-full text-xs font-bold border flex items-center gap-1.5 ${
+                  dhcpStatus?.active ? 'bg-emerald-950/60 text-emerald-300 border-emerald-500/40' : 'bg-rose-950/60 text-rose-300 border-rose-500/40'
+                }`}>
+                  <span className={`w-2 h-2 rounded-full ${dhcpStatus?.active ? 'bg-emerald-400 animate-pulse' : 'bg-rose-400'}`} />
+                  {dhcpStatus?.active ? 'Daemon DHCP Ativo' : 'Daemon DHCP Inativo'}
+                </span>
+                <button
+                  onClick={async () => {
+                    try {
+                      const res = await fetch('/api/v1/network/dhcp/restart', { method: 'POST' });
+                      const d = await res.json();
+                      showToast(d.message || "Daemon DHCP reiniciado com sucesso!", res.ok ? "success" : "error");
+                      fetchVpnAndDhcp();
+                    } catch (e) {
+                      showToast("Erro ao reiniciar DHCP: " + e.message, "error");
+                    }
+                  }}
+                  className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-xs font-semibold transition flex items-center gap-1.5 border border-slate-700"
+                >
+                  <RefreshCw className="w-3.5 h-3.5" />
+                  Reiniciar Daemon
+                </button>
+              </div>
             </div>
 
             {/* AD-DNS Integration Highlight Box */}
@@ -756,6 +962,164 @@ export default function App() {
                 </button>
               </div>
             </div>
+
+            {/* Configuração de Escopo DHCP */}
+            <div className="glass-panel p-5 rounded-xl border border-emerald-500/20 space-y-4">
+              <div className="flex items-center justify-between border-b border-emerald-500/15 pb-3">
+                <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                  <Layers className="w-4 h-4 text-emerald-400" />
+                  Configurar / Ativar Escopo DHCP (Pool por Interface LAN)
+                </h3>
+                <span className="text-xs text-slate-400 font-mono">/etc/dhcp/dhcpd.conf</span>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
+                <div>
+                  <label className="block text-slate-300 mb-1 font-medium">Interface LAN / Bridge</label>
+                  <select
+                    value={scopeForm.iface}
+                    onChange={e => setScopeForm({ ...scopeForm, iface: e.target.value })}
+                    className="w-full glass-input px-3 py-2 rounded-lg bg-slate-900 border border-emerald-500/30 text-white"
+                  >
+                    <option value="">Selecione uma interface...</option>
+                    {interfaces.filter(i => !i.is_wan).map((iface, idx) => (
+                      <option key={idx} value={iface.name}>
+                        {iface.name} ({iface.ip_addresses?.join(', ') || 'Sem IP'} - {iface.mac})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-slate-300 mb-1 font-medium">Subrede CIDR</label>
+                  <input
+                    type="text"
+                    value={scopeForm.subnet}
+                    onChange={e => setScopeForm({ ...scopeForm, subnet: e.target.value })}
+                    placeholder="ex.: 192.168.1.0/24"
+                    className="w-full glass-input px-3 py-2 rounded-lg bg-slate-900 border border-emerald-500/30 text-white font-mono"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-slate-300 mb-1 font-medium">Gateway Padrão</label>
+                  <input
+                    type="text"
+                    value={scopeForm.gateway}
+                    onChange={e => setScopeForm({ ...scopeForm, gateway: e.target.value })}
+                    placeholder="ex.: 192.168.1.1"
+                    className="w-full glass-input px-3 py-2 rounded-lg bg-slate-900 border border-emerald-500/30 text-white font-mono"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-slate-300 mb-1 font-medium">Faixa Inicial (Range Start)</label>
+                  <input
+                    type="text"
+                    value={scopeForm.start}
+                    onChange={e => setScopeForm({ ...scopeForm, start: e.target.value })}
+                    placeholder="ex.: 192.168.1.100"
+                    className="w-full glass-input px-3 py-2 rounded-lg bg-slate-900 border border-emerald-500/30 text-white font-mono"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-slate-300 mb-1 font-medium">Faixa Final (Range End)</label>
+                  <input
+                    type="text"
+                    value={scopeForm.end}
+                    onChange={e => setScopeForm({ ...scopeForm, end: e.target.value })}
+                    placeholder="ex.: 192.168.1.200"
+                    className="w-full glass-input px-3 py-2 rounded-lg bg-slate-900 border border-emerald-500/30 text-white font-mono"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-slate-300 mb-1 font-medium">Servidores DNS Entregues</label>
+                  <input
+                    type="text"
+                    value={scopeForm.dns}
+                    onChange={e => setScopeForm({ ...scopeForm, dns: e.target.value })}
+                    placeholder="ex.: 192.168.1.1, 8.8.8.8"
+                    className="w-full glass-input px-3 py-2 rounded-lg bg-slate-900 border border-emerald-500/30 text-white font-mono"
+                  />
+                </div>
+              </div>
+
+              <div className="flex justify-end pt-2">
+                <button
+                  onClick={async () => {
+                    if (!scopeForm.iface) {
+                      showToast("Selecione uma interface LAN para ativar o escopo.", "warning");
+                      return;
+                    }
+                    try {
+                      const payload = {
+                        interfaces: interfaces.map(i => {
+                          if (i.name === scopeForm.iface) {
+                            return {
+                              ...i,
+                              servidor_dhcp: true,
+                              dhcp_inicio: scopeForm.start,
+                              dhcp_fim: scopeForm.end,
+                            };
+                          }
+                          return i;
+                        }),
+                        dominio_dhcp: adConfig.ad_domain,
+                      };
+                      const res = await fetch('/api/v1/network/declarative-state', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload),
+                      });
+                      if (res.ok) {
+                        showToast(`Escopo DHCP aplicado na interface ${scopeForm.iface}!`, "success");
+                        fetchVpnAndDhcp();
+                        fetchInventory();
+                      } else {
+                        const err = await res.json();
+                        showToast("Falha ao salvar escopo: " + (err.message || err.error), "error");
+                      }
+                    } catch (e) {
+                      showToast("Erro de rede: " + e.message, "error");
+                    }
+                  }}
+                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-bold transition flex items-center gap-1.5 shadow-md shadow-emerald-950"
+                >
+                  <Save className="w-4 h-4" />
+                  Salvar e Ativar Escopo DHCP
+                </button>
+              </div>
+            </div>
+
+            {/* Escopos Configurados no Sistema */}
+            {dhcpStatus?.scopes && dhcpStatus.scopes.length > 0 && (
+              <div className="glass-panel rounded-xl overflow-hidden border border-emerald-500/20 space-y-2">
+                <div className="p-4 border-b border-emerald-500/20 flex items-center justify-between">
+                  <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                    <CheckCircle className="w-4 h-4 text-emerald-400" />
+                    Escopos Ativos em /etc/dhcp/dhcpd.conf
+                  </h3>
+                  <span className="text-xs text-emerald-400 font-mono">{dhcpStatus.scopes.length} escopos ativos</span>
+                </div>
+                <div className="p-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {dhcpStatus.scopes.map((sc, idx) => (
+                    <div key={idx} className="bg-slate-900/60 border border-emerald-500/20 rounded-lg p-3 space-y-2 text-xs">
+                      <div className="flex items-center justify-between">
+                        <span className="font-bold text-emerald-300 font-mono">{sc.subnet}/{sc.netmask}</span>
+                        <span className="px-2 py-0.5 rounded text-[10px] bg-emerald-950 text-emerald-400 border border-emerald-600/30">Ativo</span>
+                      </div>
+                      <div className="grid grid-cols-2 gap-1 text-[11px] text-slate-300">
+                        <div><span className="text-slate-500">Faixa:</span> {sc.range_start} - {sc.range_end}</div>
+                        <div><span className="text-slate-500">Gateway:</span> {sc.routers?.join(', ') || '-'}</div>
+                        <div className="col-span-2"><span className="text-slate-500">DNS:</span> {sc.dns_servers?.join(', ') || '-'}</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {/* Active Leases Table */}
             <div className="glass-panel rounded-xl overflow-hidden border border-emerald-500/20 space-y-2">

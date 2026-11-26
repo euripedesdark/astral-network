@@ -17,3 +17,5 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 regex = "1.10"
 uuid = { version = "1.10", features = ["v4"] }
 chrono = { version = "0.4", features = ["serde"] }
+jsonwebtoken = { version = "11.1", features = ["rust_crypto"] }
+libc = "0.2"
