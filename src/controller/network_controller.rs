@@ -73,7 +73,7 @@ impl NetworkAddressingController {
 
     // 3. Declarative State Management
     pub async fn handle_declarative_get(&self) -> Response {
-        let interfaces = NetworkDiscoveryService::discover_all_interfaces();
+        let _interfaces = NetworkDiscoveryService::discover_all_interfaces();
         let wg = VpnEngine::get_wireguard_status();
         let cf = VpnEngine::get_cloudflare_status();
 

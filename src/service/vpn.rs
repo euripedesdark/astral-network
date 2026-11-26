@@ -64,7 +64,7 @@ impl VpnEngine {
         let privkey = Command::new("wg").arg("genkey").output();
         if let Ok(res) = privkey {
             let private = String::from_utf8_lossy(&res.stdout).trim().to_string();
-            let mut echo = Command::new("wg")
+            let echo = Command::new("wg")
                 .arg("pubkey")
                 .stdin(std::process::Stdio::piped())
                 .stdout(std::process::Stdio::piped())

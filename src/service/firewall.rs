@@ -1,5 +1,6 @@
 use std::process::Command;
 use tracing::info;
+use crate::domain::inventory::{PortForward, ZoneFirewallRule};
 
 /// Firewall Host Protection for Astral Network.
 /// NAT Masquerade, DNAT Port Forwarding, SPI Rules and Zones are managed
@@ -46,5 +47,20 @@ impl FirewallEngine {
             .output();
 
         info!("Host firewall ports verified via iptables (WebUI: {}, SSH, DNS, DHCP)", web_port);
+    }
+
+    pub fn apply_wan_masquerade(_wans: &[String]) -> Result<(), String> {
+        info!("WAN masquerade handled by astral-internet-security engine.");
+        Ok(())
+    }
+
+    pub fn apply_port_forwards(_rules: &[PortForward]) -> Result<(), String> {
+        info!("Port forwards handled by astral-internet-security engine.");
+        Ok(())
+    }
+
+    pub fn apply_firewall_rules(_rules: &[ZoneFirewallRule]) -> Result<(), String> {
+        info!("Zone firewall rules handled by astral-internet-security engine.");
+        Ok(())
     }
 }

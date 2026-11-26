@@ -12,7 +12,7 @@ use controller::NetworkAddressingController;
 use server::NetworkServer;
 use service::{
     DeclarativeNetworkService, FirewallEngine, LinuxDhcpService, LinuxNetworkManagerBackend,
-    NetworkDiscoveryService, SystemCommandExecutor,
+    SystemCommandExecutor,
 };
 use std::env;
 use std::sync::Arc;
